@@ -51,6 +51,27 @@ Resources:
         - Key: Name
           Value: EKSControlPlaneSG
 
+  EKSNodeSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EKS worker nodes
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10255
+          SourceSecurityGroupId: !Ref EKSNodeSG # Allow node-to-node communication
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref EKSControlPlaneSG # Allow communication from control plane
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: EKSNodeSG
+
   EKSClusterRole:
     Type: AWS::IAM::Role
     Properties:
@@ -138,3 +159,7 @@ Resources:
       Tags:
         - Key: Name
           Value: EKSNodeGroup
+      RemoteAccess:
+        Ec2SshKey: MyKeyPair
+        SourceSecurityGroups:
+          - !Ref EKSNodeSG
