@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Secure VPC with public and private subnets, NAT gateway, and security group setup"
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: SecureVPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PrivateSubnet
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: SecureInternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: SecureNATGateway
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteTable
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and HTTPS access
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebServerSG
+
+  AppServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow access from WebServerSG
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref WebServerSG
+      Tags:
+        - Key: Name
+          Value: AppServerSG
+
+  DatabaseSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow access from AppServerSG
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref AppServerSG
+      Tags:
+        - Key: Name
+          Value: DatabaseSG
