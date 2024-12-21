@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for Security Group configuration with audit logging for compliance purposes"
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: AuditComplianceVPC
+
+  AuditWebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow only HTTPS traffic for web server with monitoring
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 203.0.113.0/24 # Allow HTTPS traffic from a specific range
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 203.0.113.0/24 # Allow outbound traffic to a specific CIDR
+      Tags:
+        - Key: Name
+          Value: AuditWebServerSG
+
+  FlowLogs:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref AuditWebServerSG
+      ResourceType: NetworkInterface
+      TrafficType: ALL
+      LogDestinationType: cloud-watch-logs
+      LogDestination: !GetAtt LogGroup.Arn
+      Tags:
+        - Key: Name
+          Value: AuditWebServerFlowLog
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/audit-web-server"
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: AuditWebServerLogGroup
+
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      KeyName: MyKeyPair
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref AuditWebServerSG
+      ImageId: ami-0abcdef1234567890
+      Tags:
+        - Key: Name
+          Value: AuditWebServerInstance
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
