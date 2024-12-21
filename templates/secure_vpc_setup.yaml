@@ -1,13 +1,13 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: "2010-09-09" # Defines the CloudFormation template syntax version
 Description: "Secure VPC with public and private subnets, NAT gateway, and security group setup"
 
 Resources:
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
+      CidrBlock: 10.0.0.0/16 # The IP range for the VPC. Defines the private IP address space.
+      EnableDnsSupport: true # Enables DNS resolution within the VPC.
+      EnableDnsHostnames: true # Ensures instances launched in the VPC get DNS hostnames.
       Tags:
         - Key: Name
           Value: SecureVPC
@@ -16,8 +16,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.1.0/24
-      MapPublicIpOnLaunch: true
+      CidrBlock: 10.0.1.0/24 # The IP range for the public subnet.
+      MapPublicIpOnLaunch: true # Automatically assigns public IP addresses to instances launched in this subnet.
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
@@ -27,8 +27,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.2.0/24
-      MapPublicIpOnLaunch: false
+      CidrBlock: 10.0.2.0/24 # The IP range for the private subnet.
+      MapPublicIpOnLaunch: false # Ensures instances in this subnet do not get public IPs by default.
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
@@ -39,7 +39,7 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: SecureInternetGateway
+          Value: SecureInternetGateway # Helps identify the purpose of this Internet Gateway.
 
   AttachInternetGateway:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -59,7 +59,7 @@ Resources:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: 0.0.0.0/0 # Routes all traffic destined for the Internet through the Internet Gateway.
       GatewayId: !Ref InternetGateway
 
   PublicSubnetRouteTableAssociation:
@@ -71,7 +71,7 @@ Resources:
   ElasticIP:
     Type: AWS::EC2::EIP
     Properties:
-      Domain: vpc
+      Domain: vpc # Ensures the Elastic IP is scoped to the VPC.
 
   NATGateway:
     Type: AWS::EC2::NatGateway
@@ -94,7 +94,7 @@ Resources:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: 0.0.0.0/0 # Routes outbound Internet traffic from the private subnet through the NAT Gateway.
       NatGatewayId: !Ref NATGateway
 
   PrivateSubnetRouteTableAssociation:
@@ -112,11 +112,11 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # Be cautious: allowing HTTP traffic from all IPs can expose the server to the public Internet.
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # Be cautious: allowing HTTPS traffic from all IPs.
       Tags:
         - Key: Name
           Value: WebServerSG
@@ -130,7 +130,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          SourceSecurityGroupId: !Ref WebServerSG
+          SourceSecurityGroupId: !Ref WebServerSG # Restricts traffic to only WebServerSG.
       Tags:
         - Key: Name
           Value: AppServerSG
@@ -144,7 +144,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroupId: !Ref AppServerSG
+          SourceSecurityGroupId: !Ref AppServerSG # Restricts traffic to only AppServerSG.
       Tags:
         - Key: Name
           Value: DatabaseSG
