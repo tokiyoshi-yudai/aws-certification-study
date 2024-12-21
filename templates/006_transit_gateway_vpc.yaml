@@ -1,0 +1,120 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template to create a Transit Gateway and connect multiple VPCs."
+
+Resources:
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: "Example Transit Gateway for connecting multiple VPCs"
+      DefaultRouteTableAssociation: enable # Enables association of route tables by default
+      DefaultRouteTablePropagation: enable # Enables route propagation to the default route table
+      AutoAcceptSharedAttachments: disable # Disables automatic acceptance of shared attachments
+      Tags:
+        - Key: Name
+          Value: ExampleTransitGateway
+
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC1
+
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC2
+
+  VPC1Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: VPC1-Subnet
+
+  VPC2Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: 192.168.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: VPC2-Subnet
+
+  VPC1TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway # Associates this VPC with the Transit Gateway
+      VpcId: !Ref VPC1 # VPC1 is attached to the Transit Gateway
+      SubnetIds:
+        - !Ref VPC1Subnet # Specifies the subnet in VPC1 for attachment
+      Tags:
+        - Key: Name
+          Value: VPC1-TransitGatewayAttachment
+
+  VPC2TransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway # Associates this VPC with the Transit Gateway
+      VpcId: !Ref VPC2 # VPC2 is attached to the Transit Gateway
+      SubnetIds:
+        - !Ref VPC2Subnet # Specifies the subnet in VPC2 for attachment
+      Tags:
+        - Key: Name
+          Value: VPC2-TransitGatewayAttachment
+
+  VPC1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1-RouteTable
+
+  VPC2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2-RouteTable
+
+  VPC1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable # Adds a route to the route table in VPC1
+      DestinationCidrBlock: 192.168.0.0/16 # Traffic destined for VPC2
+      TransitGatewayId: !Ref TransitGateway # Routed through the Transit Gateway
+
+  VPC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC2RouteTable # Adds a route to the route table in VPC2
+      DestinationCidrBlock: 10.0.0.0/16 # Traffic destined for VPC1
+      TransitGatewayId: !Ref TransitGateway # Routed through the Transit Gateway
+
+  VPC1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC1Subnet
+      RouteTableId: !Ref VPC1RouteTable
+
+  VPC2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC2Subnet
+      RouteTableId: !Ref VPC2RouteTable
