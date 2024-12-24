@@ -97,6 +97,19 @@ Resources:
               LambdaArn: !GetAtt MyLambdaFunction.Arn
             }
 
+  MyApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: MyApiMethod
+    Properties:
+      RestApiId: !Ref MyApiGateway
+
+  MyApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      StageName: prod
+      RestApiId: !Ref MyApiGateway
+      DeploymentId: !Ref MyApiDeployment
+
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
