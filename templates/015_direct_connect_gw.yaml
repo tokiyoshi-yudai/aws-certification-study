@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Direct Connect and Direct Connect Gateway configuration.'
+
+Resources:
+  # Direct Connect Gateway
+  DirectConnectGateway:
+    Type: AWS::DirectConnect::Gateway
+    Properties:
+      AmazonSideAsn: 64512
+      Tags:
+        - Key: Name
+          Value: DXGateway
+
+  # Direct Connect Virtual Interface
+  DirectConnectVirtualInterface:
+    Type: AWS::DirectConnect::VirtualInterface
+    Properties:
+      VirtualInterfaceName: DXVirtualInterface
+      ConnectionId: dxcon-xxxxxxxx  # Replace with your DX connection ID
+      VirtualInterfaceType: private
+      Vlan: 101
+      Asn: 65000
+      AmazonAddress: 169.254.1.1/30
+      CustomerAddress: 169.254.1.2/30
+      Tags:
+        - Key: Name
+          Value: DXPrivateVirtualInterface
+
+  # VPC 1
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC1
+
+  VPC1Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC1Subnet
+
+  VPC1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1RouteTable
+
+  VPC1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # VPC 2
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC2
+
+  VPC2Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC2Subnet
+
+  VPC2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2RouteTable
+
+  VPC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Attach VPCs to Direct Connect Gateway
+  DirectConnectGatewayAssociationVPC1:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref InternetGateway
+      AddAllowedPrefixes:
+        - Cidr: 10.0.0.0/16
+
+  DirectConnectGatewayAssociationVPC2:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref InternetGateway
+      AddAllowedPrefixes:
+        - Cidr: 10.1.0.0/16
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC1
+      InternetGatewayId: !Ref InternetGateway
