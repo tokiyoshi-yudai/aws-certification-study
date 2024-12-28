@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS Direct Connect and Transit Gateway configuration.'
+
+Resources:
+  # Direct Connect Gateway
+  DirectConnectGateway:
+    Type: AWS::DirectConnect::Gateway
+    Properties:
+      AmazonSideAsn: 64512
+      Tags:
+        - Key: Name
+          Value: DXGateway
+
+  # Transit Gateway
+  TransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: Transit Gateway for VPC connectivity
+      AmazonSideAsn: 64513
+
+  # Associate Direct Connect Gateway with Transit Gateway
+  DirectConnectGatewayAssociationTGW:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref TransitGateway
+      AddAllowedPrefixes:
+        - Cidr: 10.0.0.0/16
+        - Cidr: 10.1.0.0/16
+
+  # Virtual Interface for Direct Connect
+  DirectConnectPrivateVirtualInterface:
+    Type: AWS::DirectConnect::PrivateVirtualInterface
+    Properties:
+      VirtualInterfaceName: DXPrivateVirtualInterface
+      DirectConnectGatewayId: !Ref DirectConnectGateway
+      ConnectionId: dxcon-xxxxxxxx  # Replace with your DX connection ID
+      Vlan: 101
+      Asn: 65000
+      AmazonAddress: 169.254.1.1
+      CustomerAddress: 169.254.1.2
+      Tags:
+        - Key: Name
+          Value: DXPrivateVirtualInterface
+
+  # VPC 1
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC1
+
+  VPC1Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC1Subnet
+
+  VPC1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1RouteTable
+
+  VPC1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      TransitGatewayId: !Ref TransitGateway
+
+  TransitGatewayAttachmentVPC1:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPC1
+      SubnetIds:
+        - !Ref VPC1Subnet
+
+  # VPC 2
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC2
+
+  VPC2Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC2Subnet
+
+  VPC2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2RouteTable
+
+  VPC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC2RouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      TransitGatewayId: !Ref TransitGateway
+
+  TransitGatewayAttachmentVPC2:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      TransitGatewayId: !Ref TransitGateway
+      VpcId: !Ref VPC2
+      SubnetIds:
+        - !Ref VPC2Subnet
+
+Outputs:
+  TransitGatewayId:
+    Description: Transit Gateway ID
+    Value: !Ref TransitGateway
+
+  DirectConnectGatewayId:
+    Description: Direct Connect Gateway ID
+    Value: !Ref DirectConnectGateway
+
+  VPC1Id:
+    Description: VPC1 ID
+    Value: !Ref VPC1
+
+  VPC2Id:
+    Description: VPC2 ID
+    Value: !Ref VPC2
