@@ -20,8 +20,8 @@ Resources:
       VirtualInterfaceType: private
       Vlan: 101
       Asn: 65000
-      AmazonAddress: 169.254.1.1/30
-      CustomerAddress: 169.254.1.2/30
+      AmazonAddress: 169.254.1.1/30  # AWS side of the BGP peering
+      CustomerAddress: 169.254.1.2/30  # On-premises router interface for BGP peering
       Tags:
         - Key: Name
           Value: DXPrivateVirtualInterface
@@ -63,6 +63,13 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
+  VPC1OnPremRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 192.168.0.0/16  # On-premises network range
+      GatewayId: !Ref DirectConnectGateway
+
   # VPC 2
   VPC2:
     Type: AWS::EC2::VPC
@@ -100,6 +107,13 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
 
+  VPC2OnPremRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC2RouteTable
+      DestinationCidrBlock: 192.168.0.0/16  # On-premises network range
+      GatewayId: !Ref DirectConnectGateway
+
   # Attach VPCs to Direct Connect Gateway
   DirectConnectGatewayAssociationVPC1:
     Type: AWS::DirectConnect::GatewayAssociation
@@ -126,3 +140,10 @@ Resources:
     Properties:
       VpcId: !Ref VPC1
       InternetGatewayId: !Ref InternetGateway
+
+  AttachInternetGatewayVPC2:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC2
+      InternetGatewayId: !Ref InternetGateway
+
