@@ -26,6 +26,16 @@ Resources:
         - Key: Name
           Value: DXPrivateVirtualInterface
 
+  DirectConnectGatewayAssociationVIF:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      VirtualInterfaceId: !Ref DirectConnectVirtualInterface
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
   # VPC 1
   VPC1:
     Type: AWS::EC2::VPC
@@ -48,6 +58,22 @@ Resources:
         - Key: Name
           Value: VPC1Subnet
 
+  # Attach VPCs to Direct Connect Gateway
+  DirectConnectGatewayAssociationVPC1:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref InternetGateway
+      AddAllowedPrefixes:
+        - Cidr: 10.0.0.0/16
+
+  AttachInternetGatewayVPC1:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC1
+      InternetGatewayId: !Ref InternetGateway
+
+  # VPC1 Routing
   VPC1RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -69,6 +95,13 @@ Resources:
       RouteTableId: !Ref VPC1RouteTable
       DestinationCidrBlock: 192.168.0.0/16  # On-premises network range
       GatewayId: !Ref DirectConnectGateway
+
+  VPC1InternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
 
   # VPC 2
   VPC2:
@@ -92,6 +125,21 @@ Resources:
         - Key: Name
           Value: VPC2Subnet
 
+  DirectConnectGatewayAssociationVPC2:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref InternetGateway
+      AddAllowedPrefixes:
+        - Cidr: 10.1.0.0/16
+
+  AttachInternetGatewayVPC2:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC2
+      InternetGatewayId: !Ref InternetGateway
+
+  # VPC2 Routing
   VPC2RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -114,36 +162,9 @@ Resources:
       DestinationCidrBlock: 192.168.0.0/16  # On-premises network range
       GatewayId: !Ref DirectConnectGateway
 
-  # Attach VPCs to Direct Connect Gateway
-  DirectConnectGatewayAssociationVPC1:
-    Type: AWS::DirectConnect::GatewayAssociation
+  VPC2InternetRoute:
+    Type: AWS::EC2::Route
     Properties:
-      GatewayId: !Ref DirectConnectGateway
-      AssociatedGatewayId: !Ref InternetGateway
-      AddAllowedPrefixes:
-        - Cidr: 10.0.0.0/16
-
-  DirectConnectGatewayAssociationVPC2:
-    Type: AWS::DirectConnect::GatewayAssociation
-    Properties:
-      GatewayId: !Ref DirectConnectGateway
-      AssociatedGatewayId: !Ref InternetGateway
-      AddAllowedPrefixes:
-        - Cidr: 10.1.0.0/16
-
-  # Internet Gateway
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-
-  AttachInternetGateway:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref VPC1
-      InternetGatewayId: !Ref InternetGateway
-
-  AttachInternetGatewayVPC2:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref VPC2
-      InternetGatewayId: !Ref InternetGateway
-
+      RouteTableId: !Ref VPC2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
