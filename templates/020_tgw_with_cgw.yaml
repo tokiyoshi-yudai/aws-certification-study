@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Transit Gateway with Customer Gateway and VPN Routing'
+
+Resources:
+  # Transit Gateway
+  MyTransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: 'My Transit Gateway'
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      Tags:
+        - Key: Name
+          Value: MyTransitGateway
+
+  # Transit Gateway Route Table
+  MyTransitGatewayRouteTable:
+    Type: AWS::EC2::TransitGatewayRouteTable
+    Properties:
+      TransitGatewayId: !Ref MyTransitGateway
+      Tags:
+        - Key: Name
+          Value: MyTGWRouteTable
+
+  # Associate TGW Route Table with TGW
+  MyTGWRouteTableAssociation:
+    Type: AWS::EC2::TransitGatewayRouteTableAssociation
+    Properties:
+      TransitGatewayRouteTableId: !Ref MyTransitGatewayRouteTable
+      TransitGatewayAttachmentId: !Ref MyVPNAttachment
+
+  # VPC 1
+  MyVPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC1
+
+  MyVPC1Attachment:
+    Type: AWS::EC2::TransitGatewayAttachment
+    Properties:
+      TransitGatewayId: !Ref MyTransitGateway
+      VpcId: !Ref MyVPC1
+      SubnetIds:
+        - !Ref MySubnet1
+
+  MySubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC1
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs]
+
+  # Customer Gateway
+  MyCustomerGateway:
+    Type: AWS::EC2::CustomerGateway
+    Properties:
+      BgpAsn: 65001
+      IpAddress: 198.51.100.1 # Replace with your on-premises public IP
+      Type: ipsec.1
+      Tags:
+        - Key: Name
+          Value: MyCustomerGateway
+
+  # VPN Connection
+  MyVPNConnection:
+    Type: AWS::EC2::VPNConnection
+    Properties:
+      Type: ipsec.1
+      CustomerGatewayId: !Ref MyCustomerGateway
+      TransitGatewayId: !Ref MyTransitGateway
+      StaticRoutesOnly: false
+      Tags:
+        - Key: Name
+          Value: MyVPNConnection
+
+  # VPN Connection Route
+  MyVPNRoute:
+    Type: AWS::EC2::VPNConnectionRoute
+    Properties:
+      DestinationCidrBlock: 192.168.0.0/16  # Replace with your on-premises CIDR
+      VpnConnectionId: !Ref MyVPNConnection
+
+  # Route for VPC to TGW
+  MyRouteToTGW:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      DestinationCidrBlock: 192.168.0.0/16  # Replace with your on-premises CIDR
+      TransitGatewayId: !Ref MyTransitGateway
+
+  MyRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC1
+      Tags:
+        - Key: Name
+          Value: MyVPC1RouteTable
+
+  MyRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref MySubnet1
+      RouteTableId: !Ref MyRouteTable
