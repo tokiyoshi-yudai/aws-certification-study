@@ -1,0 +1,142 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'VPC Peering and Direct Connect Configuration'
+
+Resources:
+  # VPC 1 (Primary VPC connected to Direct Connect)
+  VPC1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC1
+
+  VPC1Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC1
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC1Subnet
+
+  VPC1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC1
+      Tags:
+        - Key: Name
+          Value: VPC1RouteTable
+
+  VPC1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC1Subnet
+      RouteTableId: !Ref VPC1RouteTable
+
+  # VPC 2 (Peer VPC)
+  VPC2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPC2
+
+  VPC2Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC2
+      CidrBlock: 10.1.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [1, !GetAZs]
+      Tags:
+        - Key: Name
+          Value: VPC2Subnet
+
+  VPC2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPC2RouteTable
+
+  VPC2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref VPC2Subnet
+      RouteTableId: !Ref VPC2RouteTable
+
+  # VPC Peering Connection
+  VPCPeeringConnection:
+    Type: AWS::EC2::VPCPeeringConnection
+    Properties:
+      VpcId: !Ref VPC1
+      PeerVpcId: !Ref VPC2
+      Tags:
+        - Key: Name
+          Value: VPCPeeringConnection
+
+  # Route for VPC 1 to communicate with VPC 2
+  VPC1ToVPC2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 10.1.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  # Route for VPC 2 to communicate with VPC 1
+  VPC2ToVPC1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC2RouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      VpcPeeringConnectionId: !Ref VPCPeeringConnection
+
+  # Direct Connect Gateway
+  DirectConnectGateway:
+    Type: AWS::DirectConnect::Gateway
+    Properties:
+      AmazonSideAsn: 64512
+      Tags:
+        - Key: Name
+          Value: DXGateway
+
+  # Virtual Private Gateway (VGW) for VPC 1
+  VGW:
+    Type: AWS::EC2::VPNGateway
+    Properties:
+      Type: ipsec.1
+      Tags:
+        - Key: Name
+          Value: VGW
+
+  VGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC1
+      VpnGatewayId: !Ref VGW
+
+  # Associate VGW with Direct Connect Gateway
+  DirectConnectGatewayAssociation:
+    Type: AWS::DirectConnect::GatewayAssociation
+    Properties:
+      GatewayId: !Ref DirectConnectGateway
+      AssociatedGatewayId: !Ref VGW
+      AddAllowedPrefixes:
+        - Cidr: 10.0.0.0/16
+
+  # Example Route for Direct Connect Gateway in VPC 1
+  DXRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref VPC1RouteTable
+      DestinationCidrBlock: 192.168.0.0/16  # Replace with on-premises CIDR
+      GatewayId: !Ref VGW
