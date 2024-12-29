@@ -1,0 +1,100 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "S3 Interface VPC Endpoint with PrivateLink for On-Premises Access via Direct Connect"
+
+Resources:
+  # VPC
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+  # Subnet for Interface Endpoint
+  MySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  # Security Group for Interface Endpoint
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTPS traffic for S3 Interface Endpoint"
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.0.0/16 # Allow traffic from VPC
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 192.168.0.0/16 # Allow traffic from On-Premises via DX (adjust CIDR)
+      Tags:
+        - Key: Name
+          Value: MySecurityGroup
+
+  # S3 Interface VPC Endpoint
+  S3InterfaceEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      SubnetIds:
+        - !Ref MySubnet
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      PrivateDnsEnabled: true # Enable private DNS for S3 access
+
+  # Route Table
+  MyRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+
+  # Associate Subnet with Route Table
+  RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref MyRouteTable
+      SubnetId: !Ref MySubnet
+
+  # DX Gateway Association (Logical Reference for DX Setup)
+  MyDirectConnectGatewayAssociation:
+    Type: AWS::EC2::TransitGatewayAttachment # Replace with your DX setup if pre-configured
+    Properties:
+      TransitGatewayId: !Ref MyTransitGateway # Replace with existing TGW
+      DirectConnectGatewayId: !Ref MyDirectConnectGateway # Replace with existing DX Gateway
+      Tags:
+        - Key: Name
+          Value: DX-Gateway-Association
+
+  # Transit Gateway for DX (Optional, if not already created)
+  MyTransitGateway:
+    Type: AWS::EC2::TransitGateway
+    Properties:
+      Description: "Transit Gateway for DX"
+      DefaultRouteTableAssociation: enable
+      DefaultRouteTablePropagation: enable
+      Tags:
+        - Key: Name
+          Value: MyTransitGateway
+
+  # Transit Gateway Attachment for VPC
+  MyTransitGatewayAttachment:
+    Type: AWS::EC2::TransitGatewayVpcAttachment
+    Properties:
+      TransitGatewayId: !Ref MyTransitGateway
+      SubnetIds:
+        - !Ref MySubnet
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: MyTransitGatewayAttachment
