@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Deploy a VPC with a GWLB, firewalls, and a web server for secure traffic handling.'
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MyVPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  GWLB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: MyGWLB
+      Subnets:
+        - !Ref PublicSubnet
+      Type: gateway
+
+  GWLBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: GWLBTargetGroup
+      Protocol: GENEVE
+      Port: 6081
+      VpcId: !Ref VPC
+      TargetType: instance
+
+  GWLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref GWLB
+      Protocol: GENEVE
+      Port: 6081
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GWLBTargetGroup
+
+  FirewallRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  FirewallRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref FirewallRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      VpcEndpointId: !Ref GWLB
+
+  EC2InstanceFirewall1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      SubnetId: !Ref PublicSubnet
+      ImageId: ami-xxxxxxxx # Replace with actual Firewall AMI ID
+      Tags:
+        - Key: Name
+          Value: FirewallInstance1
+      SecurityGroupIds:
+        - !GetAtt FirewallSG.GroupId
+
+  EC2InstanceFirewall2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      SubnetId: !Ref PublicSubnet
+      ImageId: ami-xxxxxxxx # Replace with actual Firewall AMI ID
+      Tags:
+        - Key: Name
+          Value: FirewallInstance2
+      SecurityGroupIds:
+        - !GetAtt FirewallSG.GroupId
+
+  FirewallSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow traffic for firewalls
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  GWLBTarget1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupTarget
+    Properties:
+      TargetGroupArn: !Ref GWLBTargetGroup
+      TargetId: !Ref EC2InstanceFirewall1
+      Port: 6081
+
+  GWLBTarget2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupTarget
+    Properties:
+      TargetGroupArn: !Ref GWLBTargetGroup
+      TargetId: !Ref EC2InstanceFirewall2
+      Port: 6081
+
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      SubnetId: !Ref PrivateSubnet
+      ImageId: ami-yyyyyyyy # Replace with actual Web Server AMI ID
+      Tags:
+        - Key: Name
+          Value: WebServer
+      SecurityGroupIds:
+        - !GetAtt WebServerSG.GroupId
+
+  WebServerSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Allow traffic from Firewall
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          SourceSecurityGroupId: !GetAtt FirewallSG.GroupId
