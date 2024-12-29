@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Gateway Load Balancer (GWLB) architecture with Endpoint Service integration and redundant Firewall EC2 instances
+Description: Gateway Load Balancer (GWLB) architecture with Endpoint Service integration, redundant Firewall EC2 instances, and Private Web Server
 
 Resources:
+
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -34,6 +35,17 @@ Resources:
         - Key: Name
           Value: PrivateSubnet
 
+  GWLBSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.3.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: GWLBSubnet
+
   InternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
@@ -51,7 +63,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.medium
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref GWLBSubnet
       ImageId: ami-0abcdef1234567890 # Replace with Firewall AMI ID
       Tags:
         - Key: Name
@@ -61,11 +73,23 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t3.medium
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !Ref GWLBSubnet
       ImageId: ami-0abcdef1234567890 # Replace with Firewall AMI ID
       Tags:
         - Key: Name
           Value: FirewallInstance2
+
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      SubnetId: !Ref PrivateSubnet
+      ImageId: ami-0abcdef1234567890 # Replace with Web Server AMI ID
+      SecurityGroupIds:
+        - !Ref WebServerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: PrivateWebServer
 
   GWLB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -73,7 +97,7 @@ Resources:
       Name: GWLB
       Type: gateway
       Subnets:
-        - !Ref PublicSubnet
+        - !Ref GWLBSubnet
       Tags:
         - Key: Name
           Value: GWLB
@@ -121,6 +145,24 @@ Resources:
       Tags:
         - Key: Name
           Value: GWLB-SecurityGroup
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP and HTTPS traffic from GWLB only
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref SecurityGroup
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref SecurityGroup
+      Tags:
+        - Key: Name
+          Value: WebServerSecurityGroup
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
