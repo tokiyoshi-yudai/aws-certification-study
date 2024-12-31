@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for multi-region redundancy using Route 53, Global Accelerator, ALB, and EC2 instances in two AWS regions."
+
+Resources:
+  # VPC in Region 1
+  VPCRegion1:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPCRegion1
+
+  SubnetRegion1A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCRegion1
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  SubnetRegion1B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCRegion1
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
+  SecurityGroupRegion1:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTP traffic"
+      VpcId: !Ref VPCRegion1
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+
+  ALBRegion1:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: "ALBRegion1"
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetRegion1A
+        - !Ref SubnetRegion1B
+      SecurityGroups:
+        - !Ref SecurityGroupRegion1
+
+  EC2InstanceRegion1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: "ami-0c02fb55956c7d316"  # Amazon Linux 2
+      SubnetId: !Ref SubnetRegion1A
+      SecurityGroupIds:
+        - !Ref SecurityGroupRegion1
+      Tags:
+        - Key: Name
+          Value: "EC2InstanceRegion1"
+
+  TargetGroupRegion1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "TGRegion1"
+      VpcId: !Ref VPCRegion1
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      Targets:
+        - Id: !Ref EC2InstanceRegion1
+
+  ListenerRegion1:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALBRegion1
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupRegion1
+
+  # VPC in Region 2
+  VPCRegion2:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.1.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: VPCRegion2
+
+  SubnetRegion2A:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCRegion2
+      CidrBlock: "10.1.1.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
+
+  SubnetRegion2B:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCRegion2
+      CidrBlock: "10.1.2.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
+
+  SecurityGroupRegion2:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Allow HTTP traffic"
+      VpcId: !Ref VPCRegion2
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+
+  ALBRegion2:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: "ALBRegion2"
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SubnetRegion2A
+        - !Ref SubnetRegion2B
+      SecurityGroups:
+        - !Ref SecurityGroupRegion2
+
+  EC2InstanceRegion2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: "ami-0c02fb55956c7d316"  # Amazon Linux 2
+      SubnetId: !Ref SubnetRegion2A
+      SecurityGroupIds:
+        - !Ref SecurityGroupRegion2
+      Tags:
+        - Key: Name
+          Value: "EC2InstanceRegion2"
+
+  TargetGroupRegion2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: "TGRegion2"
+      VpcId: !Ref VPCRegion2
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      Targets:
+        - Id: !Ref EC2InstanceRegion2
+
+  ListenerRegion2:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALBRegion2
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupRegion2
+
+  # Global Accelerator
+  GlobalAccelerator:
+    Type: AWS::GlobalAccelerator::Accelerator
+    Properties:
+      Name: "GlobalAccelerator"
+      Enabled: true
+      IpAddressType: IPV4
+
+  AcceleratorListener:
+    Type: AWS::GlobalAccelerator::Listener
+    Properties:
+      AcceleratorArn: !Ref GlobalAccelerator
+      PortRanges:
+        - FromPort: 80
+          ToPort: 80
+      Protocol: TCP
+
+  EndpointGroupRegion1:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties:
+      ListenerArn: !Ref AcceleratorListener
+      EndpointGroupRegion: !Ref "AWS::Region"
+      Endpoints:
+        - EndpointId: !Ref ALBRegion1
+          Weight: 128
+
+  EndpointGroupRegion2:
+    Type: AWS::GlobalAccelerator::EndpointGroup
+    Properties:
+      ListenerArn: !Ref AcceleratorListener
+      EndpointGroupRegion: "us-west-2"
+      Endpoints:
+        - EndpointId: !Ref ALBRegion2
+          Weight: 128
+
+  # Route 53 Hosted Zone
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: "example.com"
+
+  AliasRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: "www.example.com"
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt GlobalAccelerator.DnsName
+        HostedZoneId: !GetAtt GlobalAccelerator.HostedZoneId
