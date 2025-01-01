@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Example to create AWS RAM Resource Share for VPC and Subnets
+
+Resources:
+  # VPC Creation
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: MySharedVPC
+
+  # Subnet 1
+  MySubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: us-east-1a
+      Tags:
+        - Key: Name
+          Value: MySharedSubnet1
+
+  # Subnet 2
+  MySubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: us-east-1b
+      Tags:
+        - Key: Name
+          Value: MySharedSubnet2
+
+  # Resource Share
+  RAMResourceShare:
+    Type: AWS::RAM::ResourceShare
+    Properties:
+      Name: "MyVPCSubnetShare"
+      ResourceArns:
+        - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MySubnet1}"
+        - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MySubnet2}"
+      Principals:
+        - 987654321098  # Replace with the AWS Account ID to share with
+      AllowExternalPrincipals: true  # Allows sharing with accounts outside the organization
+
+  # Optional: Associate additional resources to the share
+  RAMResourceAssociation:
+    Type: AWS::RAM::ResourceAssociation
+    Properties:
+      ResourceShareArn: !Ref RAMResourceShare
+      ResourceArn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MySubnet1}"
+
+  # Optional: Associate specific principals (e.g., AWS Organizations or accounts)
+  RAMPrincipalAssociation:
+    Type: AWS::RAM::PrincipalAssociation
+    Properties:
+      ResourceShareArn: !Ref RAMResourceShare
+      Principal: 012345678901  # Replace with another AWS Account ID
