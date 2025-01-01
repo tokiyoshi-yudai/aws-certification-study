@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS DataSync setup for linking On-Premises and AWS
+
+Resources:
+  # DataSync Agent
+  DataSyncAgent:
+    Type: AWS::DataSync::Agent
+    Properties:
+      ActivationKey: "ACTIVATION-KEY"  # Replace with actual activation key
+      AgentName: "OnPremAgent"
+
+  # S3 Bucket for Destination
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "datasync-destination-bucket"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # DataSync Location for S3
+  DataSyncLocationS3:
+    Type: AWS::DataSync::LocationS3
+    Properties:
+      S3BucketArn: !GetAtt S3Bucket.Arn
+      S3Config:
+        BucketAccessRoleArn: !GetAtt S3BucketRole.Arn
+
+  # IAM Role for S3 Bucket Access
+  S3BucketRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "datasync.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "S3AccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3Bucket}/*"
+                  - !Sub "arn:aws:s3:::${S3Bucket}"
+
+  # On-Premises DataSync Location
+  DataSyncLocationOnPrem:
+    Type: AWS::DataSync::LocationFSxONTAP
+    Properties:
+      ServerHostname: "on-prem-hostname"  # Replace with on-premises server hostname
+      Subdirectory: "/shared/data"  # Replace with the on-premises directory to sync
+      Protocol:
+        SMB:
+          Domain: "DOMAIN"  # Replace with the domain name if applicable
+          Username: "USERNAME"  # Replace with the username for access
+          Password: "PASSWORD"  # Replace with the password for access
+
+  # DataSync Task
+  DataSyncTask:
+    Type: AWS::DataSync::Task
+    Properties:
+      Name: "OnPremToS3SyncTask"
+      SourceLocationArn: !Ref DataSyncLocationOnPrem
+      DestinationLocationArn: !Ref DataSyncLocationS3
+      Options:
+        VerifyMode: "ONLY_FILES_TRANSFERRED"
+        OverwriteMode: "ALWAYS"
+        PreserveDeletedFiles: "REMOVE"
+        PreserveDevices: "NONE"
+      Schedule:
+        ScheduleExpression: "rate(1 day)"
