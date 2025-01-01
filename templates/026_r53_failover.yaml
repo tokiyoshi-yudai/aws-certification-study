@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Route 53 failover routing between on-premises and AWS."
+
+Resources:
+  # Route 53 Hosted Zone
+  HostedZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: "example.com"
+
+  # Primary Record (On-Premises)
+  PrimaryRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: "www.example.com"
+      Type: A
+      TTL: "300"
+      SetIdentifier: "OnPremisesPrimary"
+      HealthCheckId: !Ref OnPremHealthCheck
+      Failover: PRIMARY
+      ResourceRecords:
+        - "203.0.113.10"  # On-premises public IP
+
+  # Secondary Record (AWS)
+  SecondaryRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZone
+      Name: "www.example.com"
+      Type: A
+      TTL: "300"
+      SetIdentifier: "AWSSecondary"
+      HealthCheckId: !Ref AWSHealthCheck
+      Failover: SECONDARY
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+
+  # On-Premises Health Check
+  OnPremHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        IPAddress: "203.0.113.10"  # On-premises public IP
+        Port: 80
+        Type: HTTP
+        ResourcePath: "/health"
+        RequestInterval: 30
+        FailureThreshold: 3
+
+  # AWS Health Check
+  AWSHealthCheck:
+    Type: AWS::Route53::HealthCheck
+    Properties:
+      HealthCheckConfig:
+        FullyQualifiedDomainName: !GetAtt ALB.DNSName
+        Port: 80
+        Type: HTTP
+        ResourcePath: "/health"
+        RequestInterval: 30
+        FailureThreshold: 3
+
+  # Application Load Balancer (ALB)
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: "AWS-ALB"
+      Scheme: internet-facing
+      Subnets:
+        - subnet-12345678  # Replace with your actual subnet IDs
+        - subnet-87654321
+      SecurityGroups:
+        - sg-12345678  # Replace with your actual security group ID
