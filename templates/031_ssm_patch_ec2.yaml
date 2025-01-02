@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template to set up AWS Systems Manager for patching and configuration management."
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "SSM-VPC"
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: "Name"
+          Value: "SSM-PublicSubnet"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: "Name"
+          Value: "SSM-InternetGateway"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Name"
+          Value: "SSM-RouteTable"
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  SsmIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+        - "arn:aws:iam::aws:policy/AmazonEC2RoleforSSM"
+      Path: "/"
+      RoleName: "SSMRoleForAutomation"
+
+  SsmInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref SsmIamRole
+      InstanceProfileName: "SSMInstanceProfile"
+
+  PatchBaseline:
+    Type: AWS::SSM::PatchBaseline
+    Properties:
+      Name: "DefaultPatchBaseline"
+      OperatingSystem: "AmazonLinux2"
+      PatchGroups:
+        - "Production"
+      ApprovalRules:
+        PatchRules:
+          - ApproveAfterDays: 7
+            ComplianceLevel: "CRITICAL"
+            EnableNonSecurity: false
+            PatchFilterGroup:
+              PatchFilters:
+                - Key: "CLASSIFICATION"
+                  Values:
+                    - "Security"
+
+  MaintenanceWindow:
+    Type: AWS::SSM::MaintenanceWindow
+    Properties:
+      AllowUnassociatedTargets: true
+      Cutoff: 1
+      Duration: 4
+      Name: "PatchMaintenanceWindow"
+      Schedule: "rate(7 days)"
+      ScheduleTimezone: "UTC"
+
+  MaintenanceWindowTask:
+    Type: AWS::SSM::MaintenanceWindowTask
+    Properties:
+      MaxConcurrency: "2"
+      MaxErrors: "1"
+      Priority: 1
+      TaskArn: "AWS-RunPatchBaseline"
+      TaskInvocationParameters:
+        MaintenanceWindowRunCommandParameters:
+          Comment: "Patching instances in Production"
+          DocumentHashType: "Sha256"
+          NotificationConfig:
+            NotificationArn: !Ref NotificationTopicArn
+            NotificationEvents:
+              - "All"
+            NotificationType: "Command"
+          Parameters:
+            Operation:
+              - "Install"
+          ServiceRoleArn: !GetAtt SsmIamRole.Arn
+      Targets:
+        - Key: "tag:PatchGroup"
+          Values:
+            - "Production"
+        - Key: "InstanceIds"
+          Values:
+            - "i-1234567890abcdef0"
+            - "i-0987654321fedcba0"
+      TaskType: "RUN_COMMAND"
+      WindowId: !Ref MaintenanceWindow
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: "ami-0abcdef1234567890" # Replace with a valid AMI ID
+      KeyName: "MyKeyPair" # Replace with your key pair name
+      SubnetId: !Ref PublicSubnet
+      IamInstanceProfile: !Ref SsmInstanceProfile
+      Tags:
+        - Key: "Name"
+          Value: "SSM-Managed-Instance"
+        - Key: "PatchGroup"
+          Value: "Production"
+
+Parameters:
+  NotificationTopicArn:
+    Type: String
+    Description: "The ARN of the SNS topic for patch notifications."
