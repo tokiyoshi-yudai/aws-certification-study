@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template for AWS Client VPN setup."
+
+Resources:
+  
+  VpnSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for Client VPN"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  ClientVpnEndpoint:
+    Type: AWS::EC2::ClientVpnEndpoint
+    Properties:
+      ClientCidrBlock: "10.10.0.0/22"
+      ServerCertificateArn: !Ref ServerCertificateArn
+      AuthenticationOptions:
+        - Type: certificate-authentication
+          MutualAuthentication:
+            ClientRootCertificateChainArn: !Ref ClientRootCertificateArn
+      ConnectionLogOptions:
+        Enabled: true
+        CloudwatchLogGroup: !Ref LogGroupName
+        CloudwatchLogStream: !Ref LogStreamName
+      VpcId: !Ref VpcId
+      SecurityGroupIds:
+        - !Ref VpnSecurityGroup
+
+  ClientVpnSubnetAssociation:
+    Type: AWS::EC2::ClientVpnTargetNetworkAssociation
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      SubnetId: !Ref SubnetId
+
+  ClientVpnRoute:
+    Type: AWS::EC2::ClientVpnRoute
+    Properties:
+      ClientVpnEndpointId: !Ref ClientVpnEndpoint
+      DestinationCidrBlock: "0.0.0.0/0"
+      TargetVpcSubnetId: !Ref SubnetId
+
+Parameters:
+  VpcId:
+    Type: String
+    Description: "The ID of the VPC where the Client VPN will be created."
+
+  SubnetId:
+    Type: String
+    Description: "The ID of the subnet to associate with the Client VPN."
+
+  ServerCertificateArn:
+    Type: String
+    Description: "The ARN of the server certificate in ACM."
+
+  ClientRootCertificateArn:
+    Type: String
+    Description: "The ARN of the client root certificate in ACM."
+
+  LogGroupName:
+    Type: String
+    Description: "The name of the CloudWatch Log Group."
+
+  LogStreamName:
+    Type: String
+    Description: "The name of the CloudWatch Log Stream."
