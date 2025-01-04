@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to set up Athena and Glue Data Catalog integration.
+
+Resources:
+  # S3 Bucket for data storage
+  DataLakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-datalake-bucket
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # Glue Database
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: datalake_db
+        Description: Database for Athena queries.
+
+  # Glue Table (Optional: Define manually or with a crawler)
+  GlueTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: sample_table
+        Description: Sample table for Athena queries.
+        StorageDescriptor:
+          Columns:
+            - Name: id
+              Type: string
+            - Name: name
+              Type: string
+            - Name: timestamp
+              Type: string
+          Location: !Sub s3://${DataLakeBucket}/data/
+          InputFormat: org.apache.hadoop.mapred.TextInputFormat
+          OutputFormat: org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat
+          Compressed: false
+          SerdeInfo:
+            SerializationLibrary: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
+            Parameters:
+              field.delim: ","
+          Parameters:
+            classification: csv
+
+  # Glue Crawler
+  GlueCrawler:
+    Type: AWS::Glue::Crawler
+    Properties:
+      Role: !GetAtt GlueServiceRole.Arn
+      DatabaseName: !Ref GlueDatabase
+      Targets:
+        S3Targets:
+          - Path: !Sub s3://${DataLakeBucket}/data/
+      TablePrefix: "crawled_"
+      Schedule:
+        ScheduleExpression: "cron(0 3 * * ? *)" # Runs daily at 3 AM
+
+  # Glue Service Role
+  GlueServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GlueAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub arn:aws:s3:::${DataLakeBucket}
+                  - !Sub arn:aws:s3:::${DataLakeBucket}/*
+              - Effect: Allow
+                Action:
+                  - glue:CreateTable
+                  - glue:GetTable
+                  - glue:GetTables
+                  - glue:UpdateTable
+                Resource: !Sub arn:aws:glue:*:${AWS::AccountId}:catalog
+
+  # Athena Workgroup
+  AthenaWorkgroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: MyAthenaWorkgroup
+      Description: Workgroup for running Athena queries on Glue Data Catalog.
+      State: ENABLED
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub s3://${DataLakeBucket}/query-results/
+
+Outputs:
+  GlueDatabaseName:
+    Description: Glue Database Name
+    Value: !Ref GlueDatabase
+
+  DataLakeBucketName:
+    Description: S3 Bucket for Data Lake
+    Value: !Ref DataLakeBucket
+
+  AthenaWorkgroupName:
+    Description: Athena Workgroup Name
+    Value: !Ref AthenaWorkgroup
