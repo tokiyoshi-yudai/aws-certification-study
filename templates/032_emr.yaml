@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create an Amazon EMR cluster.
+
+Resources:
+  # VPC
+  EMRVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: EMRVPC
+
+  # Public Subnet
+  EMRSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref EMRVPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  # Internet Gateway
+  EMRInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  EMRVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref EMRVPC
+      InternetGatewayId: !Ref EMRInternetGateway
+
+  # Route Table
+  EMRRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EMRVPC
+
+  EMRRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref EMRRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref EMRInternetGateway
+
+  EMRRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref EMRSubnet
+      RouteTableId: !Ref EMRRouteTable
+
+  # Security Group
+  EMRSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow EMR traffic
+      VpcId: !Ref EMRVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  # EMR Cluster
+  EMRCluster:
+    Type: AWS::EMR::Cluster
+    Properties:
+      Name: MyEMRCluster
+      ReleaseLabel: emr-6.4.0
+      Instances:
+        MasterInstanceGroup:
+          InstanceCount: 1
+          InstanceType: m5.xlarge
+          Market: ON_DEMAND
+        CoreInstanceGroup:
+          InstanceCount: 2
+          InstanceType: m5.xlarge
+          Market: ON_DEMAND
+        Ec2SubnetId: !Ref EMRSubnet
+        Ec2KeyName: my-key-pair
+        AdditionalMasterSecurityGroups:
+          - !Ref EMRSecurityGroup
+        AdditionalSlaveSecurityGroups:
+          - !Ref EMRSecurityGroup
+      JobFlowRole: EMR_EC2_DefaultRole
+      ServiceRole: EMR_DefaultRole
+      VisibleToAllUsers: true
+      Applications:
+        - Name: Hadoop
+        - Name: Spark
+        - Name: Hive
+      Configurations:
+        - Classification: spark
+          Properties:
+            spark.executor.memory: 2G
+            spark.driver.memory: 2G
+      Tags:
+        - Key: Name
+          Value: MyEMRCluster
+
+Outputs:
+  EMRClusterId:
+    Description: ID of the created EMR cluster
+    Value: !Ref EMRCluster
