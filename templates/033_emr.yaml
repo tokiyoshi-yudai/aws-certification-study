@@ -101,6 +101,16 @@ Resources:
           Properties:
             spark.executor.memory: 2G
             spark.driver.memory: 2G
+      Steps:
+        - Name: Spark Step Example
+          ActionOnFailure: CONTINUE
+          HadoopJarStep:
+            Jar: command-runner.jar
+            Args:
+              - spark-submit
+              - --deploy-mode
+              - cluster
+              - s3://my-bucket/scripts/my-spark-script.py
       Tags:
         - Key: Name
           Value: MyEMRCluster
