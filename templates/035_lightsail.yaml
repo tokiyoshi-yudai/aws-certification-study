@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create a Lightsail instance using a Lambda-backed custom resource.
+
+Resources:
+  # IAM Role for Lambda Function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LightsailAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lightsail:CreateInstances
+                  - lightsail:DeleteInstance
+                  - lightsail:GetInstance
+                  - lightsail:GetInstances
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Lambda Function to Create Lightsail Instance
+  CreateLightsailInstanceFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              client = boto3.client('lightsail')
+
+              if event['RequestType'] == 'Create':
+                  response = client.create_instances(
+                      instanceNames=['MyLightsailInstance'],
+                      blueprintId='amazon_linux_2',
+                      bundleId='nano_2_0'
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'CustomResourcePhysicalID')
+
+              elif event['RequestType'] == 'Delete':
+                  client.delete_instance(instanceName='MyLightsailInstance')
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'CustomResourcePhysicalID')
+
+              else:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'CustomResourcePhysicalID')
+      Runtime: python3.9
+      Timeout: 30
+
+  # Custom Resource to Trigger Lambda Function
+  LightsailCustomResource:
+    Type: Custom::LightsailInstance
+    Properties:
+      ServiceToken: !GetAtt CreateLightsailInstanceFunction.Arn
