@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to automate EBS multi-attach setup with GFS2 and ensure UserData and AttachVolume execution order.
+
+Resources:
+  # Security Group for EC2 Instances
+  MultiAttachSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for instances with multi-attach EBS
+      VpcId: vpc-12345678 # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # IAM Role for EC2 Instances
+  InstanceIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceIAMRole
+
+  # EBS Volume (io2 with Multi-Attach Enabled)
+  MultiAttachEBSVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a # Replace with your AZ
+      Size: 100
+      VolumeType: io2
+      MultiAttachEnabled: true
+
+  # EC2 Instance 1
+  Instance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: ami-0c02fb55956c7d316 # Replace with a valid AMI ID in your region
+      KeyName: my-key-pair # Replace with your key pair name
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: subnet-12345678 # Replace with your Subnet ID
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref MultiAttachSecurityGroup
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData: !Base64 |
+        #!/bin/bash
+        # Wait for the EBS volume to be attached
+        while [ ! -e /dev/xvdf ]; do
+          echo "Waiting for /dev/xvdf to be attached..."
+          sleep 5
+        done
+        yum install -y gfs2-utils
+        mkdir -p /mnt/shared
+                mount -t gfs2 /dev/xvdf /mnt/shared
+        echo '/dev/xvdf /mnt/shared gfs2 defaults,_netdev 0 0' >> /etc/fstab
+        /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WaitForInstance1UserData --region ${AWS::Region}
+
+  AttachVolumeToInstance1:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref Instance1
+      VolumeId: !Ref MultiAttachEBSVolume
+      Device: /dev/xvdf
+
+  WaitForInstance1UserData:
+    Type: AWS::CloudFormation::WaitCondition
+    Properties:
+      Handle: !Ref WaitHandle1UserData
+      Timeout: 300 # 5 minutes
+
+  WaitHandle1UserData:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  # EC2 Instance 2
+  Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: ami-0c02fb55956c7d316 # Replace with a valid AMI ID in your region
+      KeyName: my-key-pair # Replace with your key pair name
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: subnet-12345678 # Replace with your Subnet ID
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref MultiAttachSecurityGroup
+      IamInstanceProfile: !Ref InstanceProfile
+      UserData: !Base64 |
+        #!/bin/bash
+        # Wait for the EBS volume to be attached
+        while [ ! -e /dev/xvdf ]; do
+          echo "Waiting for /dev/xvdf to be attached..."
+          sleep 5
+        done
+        yum install -y gfs2-utils
+        mkdir -p /mnt/shared
+        mount -t gfs2 /dev/xvdf /mnt/shared
+        echo '/dev/xvdf /mnt/shared gfs2 defaults,_netdev 0 0' >> /etc/fstab
+        /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WaitForInstance2UserData --region ${AWS::Region}
+    DependsOn: WaitForInstance1UserData
+
+  AttachVolumeToInstance2:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref Instance2
+      VolumeId: !Ref MultiAttachEBSVolume
+      Device: /dev/xvdf
+
+Outputs:
+  Instance1Id:
+    Description: ID of the first EC2 instance
+    Value: !Ref Instance1
+
+  Instance2Id:
+    Description: ID of the second EC2 instance
+    Value: !Ref Instance2
+
+  EBSVolumeId:
+    Description: ID of the Multi-Attach enabled EBS volume
+    Value: !Ref MultiAttachEBSVolume
