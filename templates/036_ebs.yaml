@@ -1,0 +1,237 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create EBS volumes with RAID 0 and RAID 1 configurations and snapshot functionality.
+
+Resources:
+  # EC2 Instance for RAID 0
+  RAID0Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: ami-0c02fb55956c7d316 # Replace with a valid AMI ID in your region
+      KeyName: my-key-pair # Replace with your key pair name
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp2
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: subnet-12345678 # Replace with a valid subnet ID
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref RAID0SecurityGroup
+      UserData: # RAID 0 setup script
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum install -y mdadm
+          mdadm --create --verbose /dev/md0 --level=0 --raid-devices=2 /dev/xvdf /dev/xvdg
+          mkfs.ext4 /dev/md0
+          mkdir -p /mnt/raid0
+          mount /dev/md0 /mnt/raid0
+          echo '/dev/md0 /mnt/raid0 ext4 defaults,nofail 0 2' >> /etc/fstab
+
+  # Security Group for RAID 0 Instance
+  RAID0SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RAID 0 instance
+      VpcId: vpc-12345678 # Replace with a valid VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # RAID 0 EBS Volumes
+  RAID0Volume1:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a # Replace with your AZ
+      Size: 100
+      VolumeType: gp3
+
+  RAID0Volume2:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a # Replace with your AZ
+      Size: 100
+      VolumeType: gp3
+
+  # Attach Volumes to RAID 0 EC2 Instance
+  AttachRAID0Volume1:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref RAID0Instance
+      VolumeId: !Ref RAID0Volume1
+      Device: /dev/xvdf
+
+  AttachRAID0Volume2:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref RAID0Instance
+      VolumeId: !Ref RAID0Volume2
+      Device: /dev/xvdg
+
+  # Lambda Function for RAID 0 Snapshots
+  RAID0SnapshotFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.8
+      Role: !GetAtt RAID0SnapshotLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+
+          def handler(event, context):
+              ec2 = boto3.client('ec2')
+              volume_ids = ["vol-xxxxxxxx", "vol-yyyyyyyy"]  # Replace with your RAID 0 volume IDs
+
+              snapshots = []
+              for volume_id in volume_ids:
+                  response = ec2.create_snapshot(
+                      VolumeId=volume_id,
+                      Description=f"Snapshot for RAID 0 Volume {volume_id}"
+                  )
+                  snapshots.append(response['SnapshotId'])
+
+              return {
+                  'statusCode': 200,
+                  'body': {
+                      'Snapshots': snapshots
+                  }
+              }
+
+  RAID0SnapshotLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RAID0SnapshotPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateSnapshot
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSnapshots
+                Resource: "*"
+
+  RAID0SnapshotTrigger:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(1 day)" # Runs daily
+      Targets:
+        - Arn: !GetAtt RAID0SnapshotFunction.Arn
+          Id: RAID0SnapshotFunctionTarget
+
+  RAID0SnapshotPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RAID0SnapshotFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+
+  # EC2 Instance for RAID 1
+  RAID1Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.medium
+      ImageId: ami-0c02fb55956c7d316 # Replace with a valid AMI ID in your region
+      KeyName: my-key-pair # Replace with your key pair name
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp2
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: subnet-12345678 # Replace with a valid subnet ID
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref RAID1SecurityGroup
+      UserData: # RAID 1 setup script
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum install -y mdadm
+          mdadm --create --verbose /dev/md0 --level=1 --raid-devices=2 /dev/xvdh /dev/xvdi
+          mkfs.ext4 /dev/md0
+          mkdir -p /mnt/raid1
+          mount /dev/md0 /mnt/raid1
+          echo '/dev/md0 /mnt/raid1 ext4 defaults,nofail 0 2' >> /etc/fstab
+
+  # Security Group for RAID 1 Instance
+  RAID1SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for RAID 1 instance
+      VpcId: vpc-12345678 # Replace with a valid VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # RAID 1 EBS Volumes
+  RAID1Volume1:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a # Replace with your AZ
+      Size: 100
+      VolumeType: gp3
+
+  RAID1Volume2:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a # Replace with your AZ
+      Size: 100
+      VolumeType: gp3
+
+  # Attach Volumes to RAID 1 EC2 Instance
+  AttachRAID1Volume1:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref RAID1Instance
+      VolumeId: !Ref RAID1Volume1
+      Device: /dev/xvdh
+
+  AttachRAID1Volume2:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref RAID1Instance
+      VolumeId: !Ref RAID1Volume2
+      Device: /dev/xvdi
+
+  # EBS Snapshot Creation for RAID 1
+  RAID1Snapshot:
+    Type: AWS::EC2::Snapshot
+    Properties:
+      VolumeId: !Ref RAID1Volume1
+
+Outputs:
+  RAID0InstanceId:
+    Description: ID of the created EC2 instance for RAID 0
+    Value: !Ref RAID0Instance
+
+  RAID0Volumes:
+    Description: RAID 0 EBS Volumes
+    Value: !Join [', ', [!Ref RAID0Volume1, !Ref RAID0Volume2]]
+
+  RAID1InstanceId:
+    Description: ID of the created EC2 instance for RAID 1
+    Value: !Ref RAID1Instance
+
+  RAID1Volumes:
+    Description: RAID 1 EBS Volumes
+    Value: !Join [', ', [!Ref RAID1Volume1, !Ref RAID1Volume2]]
+
+  RAID1SnapshotId:
+    Description: Snapshot ID for RAID 1 Volume
+    Value: !Ref RAID1Snapshot
