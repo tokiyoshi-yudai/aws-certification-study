@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFormation template to create EBS volumes with RAID 0 and RAID 1 configurations and snapshot functionality.
+Description: CloudFormation template to create EBS volumes with RAID 0 and RAID 1 configurations, and use multi-volume snapshots for RAID 0 only.
 
 Resources:
   # EC2 Instance for RAID 0
@@ -72,72 +72,13 @@ Resources:
       VolumeId: !Ref RAID0Volume2
       Device: /dev/xvdg
 
-  # Lambda Function for RAID 0 Snapshots
-  RAID0SnapshotFunction:
-    Type: AWS::Lambda::Function
+  # Multi-Volume Snapshot for RAID 0
+  RAID0MultiVolumeSnapshot:
+    Type: AWS::EC2::CreateSnapshots
     Properties:
-      Handler: index.handler
-      Runtime: python3.8
-      Role: !GetAtt RAID0SnapshotLambdaRole.Arn
-      Code:
-        ZipFile: |
-          import boto3
-
-          def handler(event, context):
-              ec2 = boto3.client('ec2')
-              volume_ids = ["vol-xxxxxxxx", "vol-yyyyyyyy"]  # Replace with your RAID 0 volume IDs
-
-              snapshots = []
-              for volume_id in volume_ids:
-                  response = ec2.create_snapshot(
-                      VolumeId=volume_id,
-                      Description=f"Snapshot for RAID 0 Volume {volume_id}"
-                  )
-                  snapshots.append(response['SnapshotId'])
-
-              return {
-                  'statusCode': 200,
-                  'body': {
-                      'Snapshots': snapshots
-                  }
-              }
-
-  RAID0SnapshotLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: RAID0SnapshotPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ec2:CreateSnapshot
-                  - ec2:DescribeVolumes
-                  - ec2:DescribeSnapshots
-                Resource: "*"
-
-  RAID0SnapshotTrigger:
-    Type: AWS::Events::Rule
-    Properties:
-      ScheduleExpression: "rate(1 day)" # Runs daily
-      Targets:
-        - Arn: !GetAtt RAID0SnapshotFunction.Arn
-          Id: RAID0SnapshotFunctionTarget
-
-  RAID0SnapshotPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref RAID0SnapshotFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
+      InstanceSpecification:
+        InstanceId: !Ref RAID0Instance
+      Description: "Multi-volume snapshot for RAID 0 configuration"
 
   # EC2 Instance for RAID 1
   RAID1Instance:
@@ -209,11 +150,29 @@ Resources:
       VolumeId: !Ref RAID1Volume2
       Device: /dev/xvdi
 
-  # EBS Snapshot Creation for RAID 1
-  RAID1Snapshot:
-    Type: AWS::EC2::Snapshot
-    Properties:
-      VolumeId: !Ref RAID1Volume1
+  # Commented-out example for DLM Multi-Volume Snapshot Policy
+  # DLMMultiVolumeSnapshotPolicy:
+  #   Type: AWS::DLM::LifecyclePolicy
+  #   Properties:
+  #     Description: "Multi-volume snapshot policy for EC2 instance"
+  #     ExecutionRoleArn: arn:aws:iam::123456789012:role/service-role/AWSDataLifecycleManagerDefaultRole
+  #     State: ENABLED
+  #     PolicyDetails:
+  #       ResourceTypes:
+  #         - VOLUME
+  #       TargetTags:
+  #         - Key: Backup
+  #           Value: MultiVolume
+  #       Schedules:
+  #         - Name: MultiVolumeSnapshotSchedule
+  #           CreateRule:
+  #             Interval: 24
+  #             IntervalUnit: HOURS
+  #           RetainRule:
+  #             Count: 7
+  #           TagsToAdd:
+  #             - Key: CreatedBy
+  #               Value: DLM
 
 Outputs:
   RAID0InstanceId:
@@ -232,6 +191,6 @@ Outputs:
     Description: RAID 1 EBS Volumes
     Value: !Join [', ', [!Ref RAID1Volume1, !Ref RAID1Volume2]]
 
-  RAID1SnapshotId:
-    Description: Snapshot ID for RAID 1 Volume
-    Value: !Ref RAID1Snapshot
+  RAID0MultiVolumeSnapshotId:
+    Description: Multi-volume snapshot for RAID 0
+    Value: !Ref RAID0MultiVolumeSnapshot
