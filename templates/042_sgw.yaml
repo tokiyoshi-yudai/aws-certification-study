@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create Storage Gateway with ActivationKey retrieval via Lambda and configure Gateway as Volume Gateway with Cache storage.
+
+Resources:
+  # EC2 Instance for Storage Gateway
+  StorageGatewayInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.large
+      ImageId: ami-0c02fb55956c7d316  # Replace with a Storage Gateway-supported AMI
+      SubnetId: subnet-12345678  # Replace with your subnet ID
+      SecurityGroupIds:
+        - !Ref StorageGatewaySecurityGroup
+      IamInstanceProfile: !Ref StorageGatewayInstanceProfile
+      KeyName: my-key-pair  # Replace with your key pair name
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvdf  # Cache storage volume
+          Ebs:
+            VolumeSize: 500  # Adjust size as needed
+            VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: StorageGatewayInstance
+      UserData: !Base64 |
+        #!/bin/bash
+        # Simulate Appliance initialization
+        sleep 120
+        # Signal WaitCondition completion
+        curl -X PUT -H "Content-Type:" --data-binary '{"Status":"SUCCESS","UniqueId":"InstanceReady"}' '<RetrieveActivationKeyWaitConditionHandle>'
+
+  # WaitConditionHandle for signaling
+  RetrieveActivationKeyWaitConditionHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+
+  RetrieveActivationKeyWaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn: StorageGatewayInstance
+    Properties:
+      Handle: !Ref RetrieveActivationKeyWaitConditionHandle
+      Timeout: 300
+
+  # Security Group for EC2 Instance
+  StorageGatewaySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Storage Gateway
+      VpcId: vpc-12345678  # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0  # Adjust for your environment
+
+  # IAM Role for EC2 Instance
+  StorageGatewayInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref StorageGatewayInstanceRole
+
+  StorageGatewayInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowMetaDataAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                Resource: "*"
+
+  # Lambda Function to Retrieve ActivationKey and Configure Gateway
+  RetrieveActivationKeyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import requests
+
+          def handler(event, context):
+              activation_key_url = "http://169.254.169.254/latest/meta-data/services/storagegateway/activation-key"
+              response = requests.get(activation_key_url)
+              if response.status_code == 200:
+                  activation_key = response.text
+                  print(f"ActivationKey: {activation_key}")
+
+                  # Create the Storage Gateway
+                  client = boto3.client('storagegateway')
+                  gateway_response = client.activate_gateway(
+                      ActivationKey=activation_key,
+                      GatewayName='MyStorageGateway',
+                      GatewayRegion='us-east-1',
+                      GatewayType='CACHED'
+                  )
+
+                  print(f"Gateway ARN: {gateway_response['GatewayARN']}")
+                  return {
+                      'statusCode': 200,
+                      'body': {
+                          'ActivationKey': activation_key,
+                          'GatewayARN': gateway_response['GatewayARN']
+                      }
+                  }
+              else:
+                  raise Exception("Failed to retrieve ActivationKey")
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AllowLambdaExecution
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - storagegateway:ActivateGateway
+                Resource: "*"
+
+Outputs:
+  StorageGatewayInstanceId:
+    Description: ID of the EC2 instance for Storage Gateway
+    Value: !Ref StorageGatewayInstance
