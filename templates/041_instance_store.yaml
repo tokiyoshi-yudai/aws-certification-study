@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to define an EC2 instance with separate EBS volume and instance store configuration.
+
+Resources:
+  # EC2 Instance with Instance Store and UserData for EBS setup
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: i3.large  # Instance type with instance store support
+      ImageId: ami-0c02fb55956c7d316  # Replace with a valid AMI ID
+      KeyName: my-key-pair  # Replace with your key pair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          SubnetId: subnet-12345678  # Replace with your subnet ID
+          DeviceIndex: 0
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvdb  # Instance Store
+          NoDevice: {}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Update and install necessary tools
+          yum update -y
+          yum install -y xfsprogs
+
+          # Wait for the attached volume to be available
+          while [ ! -e /dev/xvdf ]; do sleep 1; done
+
+          # Format the volume (if necessary)
+          mkfs.xfs /dev/xvdf
+
+          # Create mount point
+          mkdir -p /mnt/data
+
+          # Mount the volume
+          mount /dev/xvdf /mnt/data
+
+          # Update /etc/fstab for persistence
+          echo '/dev/xvdf /mnt/data xfs defaults,nofail 0 2' >> /etc/fstab
+      Tags:
+        - Key: Name
+          Value: EC2WithInstanceStoreAndEBS
+
+  # Separate EBS Volume
+  MyEBSVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a  # Ensure this matches the EC2 instance's AZ
+      Size: 100  # Volume size in GB
+      VolumeType: gp3
+      Encrypted: true  # Enable encryption for security
+      Tags:
+        - Key: Name
+          Value: SeparateEBSVolume
+
+  # Attach the EBS volume to the EC2 instance
+  AttachEBSVolume:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref MyEC2Instance
+      VolumeId: !Ref MyEBSVolume
+      Device: /dev/xvdf  # Attach as an additional volume
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref MyEC2Instance
+
+  EBSVolumeId:
+    Description: Separate EBS Volume ID
+    Value: !Ref MyEBSVolume
