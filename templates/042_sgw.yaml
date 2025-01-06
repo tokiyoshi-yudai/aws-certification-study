@@ -18,6 +18,7 @@ Resources:
           Ebs:
             VolumeSize: 500  # Adjust size as needed
             VolumeType: gp3
+            Encrypted: true  # Enable encryption for security
       Tags:
         - Key: Name
           Value: StorageGatewayInstance
@@ -49,7 +50,19 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0  # Adjust for your environment
+          CidrIp: 0.0.0.0/0  # Adjust for SSH management
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          CidrIp: 10.0.0.0/16  # NFS access for File Gateway
+        - IpProtocol: tcp
+          FromPort: 445
+          ToPort: 445
+          CidrIp: 10.0.0.0/16  # SMB access for File Gateway
+        - IpProtocol: tcp
+          FromPort: 3260
+          ToPort: 3260
+          CidrIp: 10.0.0.0/16  # iSCSI access for Volume Gateway
 
   # IAM Role for EC2 Instance
   StorageGatewayInstanceProfile:
@@ -69,7 +82,7 @@ Resources:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: AllowMetaDataAccess
+        - PolicyName: StorageGatewayAccessPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -77,6 +90,11 @@ Resources:
                 Action:
                   - ec2:DescribeInstances
                   - ec2:DescribeTags
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - ec2:CreateSnapshot
+                  - ec2:DeleteSnapshot
                 Resource: "*"
 
   # Lambda Function to Retrieve ActivationKey and Configure Gateway
