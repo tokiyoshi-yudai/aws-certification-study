@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to restore an EBS volume from a snapshot and attach it to an EC2 instance, triggered by EventBridge based on EBS health checks.
+
+Resources:
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EBSAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateVolume
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeVolumes
+                  - ec2:AttachVolume
+                  - ec2:DescribeInstances
+                  - ec2:ModifyVolume
+                  - ec2:CreateSnapshot
+                Resource: '*'
+
+  # Lambda Function
+  RestoreAndAttachEBSFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          def handler(event, context):
+              ec2 = boto3.client('ec2')
+
+              # Extract parameters from the event
+              snapshot_id = event['SnapshotId']
+              availability_zone = event['AvailabilityZone']
+              instance_id = event['InstanceId']
+              device_name = event.get('DeviceName', '/dev/xvdf')
+
+              # Create a volume from the snapshot
+              volume_response = ec2.create_volume(
+                  SnapshotId=snapshot_id,
+                  AvailabilityZone=availability_zone,
+                  VolumeType='gp3'
+              )
+              volume_id = volume_response['VolumeId']
+
+              # Wait for the volume to become available
+              waiter = ec2.get_waiter('volume_available')
+              waiter.wait(VolumeIds=[volume_id])
+
+              print(f"Created volume {volume_id} from snapshot {snapshot_id}")
+
+              # Attach the volume to the instance
+              attach_response = ec2.attach_volume(
+                  VolumeId=volume_id,
+                  InstanceId=instance_id,
+                  Device=device_name
+              )
+
+              print(f"Attached volume {volume_id} to instance {instance_id} as {device_name}")
+
+              return {
+                  'VolumeId': volume_id,
+                  'InstanceId': instance_id,
+                  'DeviceName': device_name
+              }
+
+      Timeout: 300
+      MemorySize: 128
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      KeyName: my-key-pair
+      ImageId: ami-0abcdef1234567890 # Replace with a valid AMI ID
+      AvailabilityZone: us-east-1a
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: RestoreInstance
+
+  # Security Group for EC2
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access
+      VpcId: vpc-12345678 # Replace with a valid VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # EBS Volume
+  EBSVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: us-east-1a
+      Size: 10 # Size in GiB
+      VolumeType: gp3
+      Tags:
+        - Key: Name
+          Value: MyEBSVolume
+      AutoEnableIO: true
+      MultiAttachEnabled: false
+
+  # EBS Snapshot
+  EBSSnapshot:
+    Type: AWS::EC2::Snapshot
+    Properties:
+      VolumeId: !Ref EBSVolume
+      Tags:
+        - Key: Name
+          Value: MyEBSVolumeSnapshot
+
+  # EventBridge Rule to Trigger Lambda
+  EBSHealthCheckRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "EC2 EBS Volume Notification"
+        detail:
+          state:
+            - "impaired"
+      Targets:
+        - Arn: !GetAtt RestoreAndAttachEBSFunction.Arn
+          Id: LambdaTarget
+          InputTransformer:
+            InputPathsMap:
+              snapshotId: "$.detail.snapshotId"
+              availabilityZone: "$.detail.availabilityZone"
+              instanceId: "$.detail.instanceId"
+            InputTemplate: |
+              {
+                "SnapshotId": <snapshotId>,
+                "AvailabilityZone": <availabilityZone>,
+                "InstanceId": <instanceId>,
+                "DeviceName": "/dev/xvdf"
+              }
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RestoreAndAttachEBSFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+
+  # Optional: Fast Snapshot Restore (FSR) Configuration
+  # FSRConfiguration:
+  #   Type: AWS::EC2::FastLaunchResource
+  #   Properties:
+  #     ResourceType: snapshot
+  #     SnapshotId: !Ref EBSSnapshot
+  #     TargetResourceCount: 3
+  #     AvailabilityZones:
+  #       - us-east-1a
+
+Outputs:
+  LambdaFunctionName:
+    Description: Name of the Lambda function for restoring and attaching EBS volumes
+    Value: !Ref RestoreAndAttachEBSFunction
+
+  EC2InstanceId:
+    Description: ID of the created EC2 instance
+    Value: !Ref EC2Instance
+
+  EBSVolumeId:
+    Description: ID of the created EBS volume
+    Value: !Ref EBSVolume
+
+  EBSSnapshotId:
+    Description: ID of the created EBS snapshot
+    Value: !Ref EBSSnapshot
