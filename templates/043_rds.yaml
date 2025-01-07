@@ -2,6 +2,26 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation template to create Aurora and SQL Server RDS instances with security best practices.
 
 Resources:
+  # Security Group for RDS
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow RDS access
+      VpcId: vpc-12345678 # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306 # MySQL Port
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0 # Adjust for your security requirements
+
+  # Parameter Group for SSL enforcement
+  RDSParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: RDS parameter group with SSL enforced
+      Family: mysql8.0 # Replace with your DB engine version
+      Parameters:
+        rds.force_ssl: "1"
 
   # Aurora Cluster
   AuroraDBCluster:
@@ -28,6 +48,7 @@ Resources:
       Engine: aurora-mysql
       DBClusterIdentifier: !Ref AuroraDBCluster
       PubliclyAccessible: false
+      DBParameterGroupName: !Ref RDSParameterGroup
 
   AuroraReadReplica:
     Type: AWS::RDS::DBInstance
@@ -36,6 +57,7 @@ Resources:
       Engine: aurora-mysql
       DBClusterIdentifier: !Ref AuroraDBCluster
       PubliclyAccessible: false
+      DBParameterGroupName: !Ref RDSParameterGroup
 
   AuroraSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -76,6 +98,7 @@ Resources:
       DBSubnetGroupName: !Ref SQLServerDBSubnetGroup
       StorageEncrypted: true
       KmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/example-key" # Replace with your KMS key ARN
+      DBParameterGroupName: !Ref RDSParameterGroup
 
   SQLServerReadReplica:
     Type: AWS::RDS::DBInstance
