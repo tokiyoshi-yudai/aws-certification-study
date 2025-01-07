@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Aurora Serverless v2 cluster example
+
+Resources:
+  AuroraServerlessCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineMode: serverless
+      DBClusterIdentifier: AuroraServerlessCluster
+      MasterUsername: admin
+      MasterUserPassword: Password1234
+      BackupRetentionPeriod: 7
+      ScalingConfiguration:
+        AutoPause: true
+        MinCapacity: 1
+        MaxCapacity: 32
+        SecondsUntilAutoPause: 300 # Auto-pause after 5 minutes of inactivity
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      DBSubnetGroupName: !Ref AuroraDBSubnetGroup
+      StorageEncrypted: true
+
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Aurora Serverless cluster
+      VpcId: vpc-12345678 # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0 # Adjust for your security needs
+
+  AuroraDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora Serverless
+      SubnetIds:
+        - subnet-12345678
+        - subnet-87654321
+
+Outputs:
+  AuroraServerlessClusterEndpoint:
+    Description: Endpoint of the Aurora Serverless cluster
+    Value: !GetAtt AuroraServerlessCluster.Endpoint.Address
