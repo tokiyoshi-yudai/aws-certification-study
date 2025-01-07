@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: CloudFormation template to create a DynamoDB table with best practices including security configurations and additional DynamoDB components.
+
+Resources:
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: BestPracticesTable
+      AttributeDefinitions:
+        - AttributeName: PrimaryKey
+          AttributeType: S
+        - AttributeName: SortKey
+          AttributeType: N
+        - AttributeName: SecondaryKey
+          AttributeType: S
+        - AttributeName: LocalSecondaryKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: PrimaryKey
+          KeyType: HASH
+        - AttributeName: SortKey
+          KeyType: RANGE
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 10
+        WriteCapacityUnits: 5
+      GlobalSecondaryIndexes:
+        - IndexName: SecondaryKeyIndex
+          KeySchema:
+            - AttributeName: SecondaryKey
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 5
+            WriteCapacityUnits: 2
+      LocalSecondaryIndexes:
+        - IndexName: LocalSecondaryKeyIndex
+          KeySchema:
+            - AttributeName: PrimaryKey
+              KeyType: HASH
+            - AttributeName: LocalSecondaryKey
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      SSESpecification:
+        SSEEnabled: true
+        KMSMasterKeyId: arn:aws:kms:us-east-1:123456789012:key/example-key
+      Tags:
+        - Key: Environment
+          Value: Production
+
+  DynamoDBBackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: DynamoDBBackupPlan
+        Rules:
+          - RuleName: DailyBackup
+            TargetBackupVault: !Ref DynamoDBBackupVault
+            ScheduleExpression: "cron(0 12 * * ? *)" # Daily at 12 PM UTC
+            Lifecycle:
+              DeleteAfterDays: 30
+
+  DynamoDBBackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: DynamoDBBackupVault
+
+  DynamoDBIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: dynamodb.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/BestPracticesTable"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+  DynamoDBVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      VpcId: vpc-12345678
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - sg-12345678
+      SubnetIds:
+        - subnet-12345678
+        - subnet-87654321
+
+  DynamoDBBackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref DynamoDBBackupPlan
+      BackupSelection:
+        SelectionName: DynamoDBTableBackupSelection
+        IamRoleArn: !GetAtt DynamoDBIAMRole.Arn
+        Resources:
+          - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/BestPracticesTable"
+
+Outputs:
+  DynamoDBTableName:
+    Description: The name of the DynamoDB table
+    Value: !Ref DynamoDBTable
+
+  DynamoDBStreamARN:
+    Description: The ARN of the DynamoDB stream
+    Value: !GetAtt DynamoDBTable.StreamArn
+
+  BackupVaultName:
+    Description: The name of the backup vault
+    Value: !Ref DynamoDBBackupVault
