@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create Aurora and SQL Server RDS instances with security best practices.
+
+Resources:
+
+  # Aurora Cluster
+  AuroraDBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineMode: provisioned
+      DBClusterIdentifier: AuroraCluster
+      MasterUsername: admin
+      MasterUserPassword: Password1234
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "02:00-02:30"
+      PreferredMaintenanceWindow: "sun:05:00-sun:06:00"
+      VpcSecurityGroupIds:
+        - !Ref AuroraSecurityGroup
+      DBSubnetGroupName: !Ref AuroraDBSubnetGroup
+      StorageEncrypted: true
+      KmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/example-key" # Replace with your KMS key ARN
+
+  AuroraDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.medium
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      PubliclyAccessible: false
+
+  AuroraReadReplica:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.t3.medium
+      Engine: aurora-mysql
+      DBClusterIdentifier: !Ref AuroraDBCluster
+      PubliclyAccessible: false
+
+  AuroraSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Aurora cluster
+      VpcId: vpc-12345678 # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 10.0.0.0/16 # Restrict access to your CIDR range
+
+  AuroraDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for Aurora
+      SubnetIds:
+        - subnet-12345678  # AZ1
+        - subnet-87654321  # AZ2
+        - subnet-13579246  # AZ3
+
+  # SQL Server Instance
+  SQLServerInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.m5.large
+      Engine: sqlserver-ex
+      AllocatedStorage: 100
+      MasterUsername: admin
+      MasterUserPassword: Password1234
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: "03:00-03:30"
+      PreferredMaintenanceWindow: "mon:06:00-mon:07:00"
+      PubliclyAccessible: false
+      MultiAZ: true
+      VpcSecurityGroupIds:
+        - !Ref SQLServerSecurityGroup
+      DBSubnetGroupName: !Ref SQLServerDBSubnetGroup
+      StorageEncrypted: true
+      KmsKeyId: "arn:aws:kms:us-east-1:123456789012:key/example-key" # Replace with your KMS key ARN
+
+  SQLServerReadReplica:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceClass: db.m5.large
+      Engine: sqlserver-ex
+      SourceDBInstanceIdentifier: !Ref SQLServerInstance
+      PubliclyAccessible: false
+
+  SQLServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for SQL Server instance
+      VpcId: vpc-12345678 # Replace with your VPC ID
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 1433
+          ToPort: 1433
+          CidrIp: 10.0.0.0/16 # Restrict access to your CIDR range
+
+  SQLServerDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for SQL Server
+      SubnetIds:
+        - subnet-12345678
+        - subnet-87654321
+
+Outputs:
+  AuroraClusterEndpoint:
+    Description: Aurora cluster endpoint
+    Value: !GetAtt AuroraDBCluster.Endpoint.Address
+
+  SQLServerInstanceEndpoint:
+    Description: SQL Server instance endpoint
+    Value: !GetAtt SQLServerInstance.Endpoint.Address
