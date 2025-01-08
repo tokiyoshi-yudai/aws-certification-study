@@ -15,6 +15,12 @@ Resources:
       IamRoles:
         - !Ref RedshiftIAMRole
       ClusterSubnetGroupName: !Ref RedshiftSubnetGroup  # Subnet group specified here
+      AutomatedSnapshotRetentionPeriod: 7  # Enable automated snapshots with a 7-day retention period
+      DeletionProtection: true  # Enable deletion protection to prevent accidental cluster deletion
+      ClusterParameterGroupName: "default.redshift-1.0"
+      CrossRegionSnapshotCopy:
+        DestinationRegion: "us-west-2"  # Specify the destination region for cross-region snapshots
+        RetentionPeriod: 7  # Retain snapshots for 7 days in the destination region
 
   RedshiftSecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
