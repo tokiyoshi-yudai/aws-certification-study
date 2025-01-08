@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS CloudFormation template for Amazon Redshift with Spectrum support and best practices."
+Resources:
+  RedshiftCluster:
+    Type: "AWS::Redshift::Cluster"
+    Properties:
+      ClusterType: "multi-node"
+      NumberOfNodes: 2
+      NodeType: "dc2.large"
+      DBName: "myredshiftdb"
+      MasterUsername: "admin"
+      MasterUserPassword: "SecurePassw0rd"
+      VpcSecurityGroupIds:
+        - !Ref RedshiftSecurityGroup
+      IamRoles:
+        - !Ref RedshiftIAMRole
+      ClusterSubnetGroupName: !Ref RedshiftSubnetGroup  # Subnet group specified here
+
+  RedshiftSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Security group for Redshift"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 5439
+          ToPort: 5439
+          CidrIp: "10.0.0.0/16"
+
+  RedshiftIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "redshift.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "RedshiftSpectrumPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                  - "s3:GetBucketLocation"
+                Resource:
+                  - "arn:aws:s3:::my-s3-bucket"
+                  - "arn:aws:s3:::my-s3-bucket/*"
+              - Effect: "Allow"
+                Action:
+                  - "glue:GetTable"
+                  - "glue:GetTableVersion"
+                  - "glue:GetTableVersions"
+                  - "glue:GetDatabase"
+                  - "glue:GetDatabases"
+                Resource: "*"
+
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "RedshiftVPC"
+
+  RedshiftSubnetGroup:
+    Type: "AWS::Redshift::ClusterSubnetGroup"
+    Properties:
+      Description: "Subnet group for Redshift"
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
+  PublicSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: "us-east-1a"
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: "us-east-1b"
+      MapPublicIpOnLaunch: true
+
+  PrivateSubnet1:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.3.0/24"
+      AvailabilityZone: "us-east-1a"
+      MapPublicIpOnLaunch: false
+
+  PrivateSubnet2:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.4.0/24"
+      AvailabilityZone: "us-east-1b"
+      MapPublicIpOnLaunch: false
+
+Outputs:
+  RedshiftEndpoint:
+    Description: "The endpoint for the Redshift cluster"
+    Value: !GetAtt RedshiftCluster.Endpoint.Address
+
+  RedshiftIAMRoleArn:
+    Description: "The ARN of the IAM Role associated with Redshift"
+    Value: !GetAtt RedshiftIAMRole.Arn
