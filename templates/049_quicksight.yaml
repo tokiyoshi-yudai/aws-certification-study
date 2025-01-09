@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CloudFormation template to enable IAM authentication for QuickSight and 
+  create external READER, IAM ADMIN, and QUICKSIGHT ADMIN users for dashboard viewing and management.
+
+Resources:
+  # IAM Role for QuickSight
+  QuickSightIAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "QuickSightIAMAccessRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "quicksight.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "QuickSightAccessPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:ListBucket"
+                Resource:
+                  - "arn:aws:s3:::your-s3-bucket-name"
+                  - "arn:aws:s3:::your-s3-bucket-name/*"
+              - Effect: "Allow"
+                Action:
+                  - "athena:StartQueryExecution"
+                  - "athena:GetQueryExecution"
+                  - "athena:GetQueryResults"
+                Resource: "*"
+
+  # Enable IAM Authentication
+  EnableIAMAuthentication:
+    Type: "Custom::QuickSightIAMAuthentication"
+    Properties:
+      ServiceToken: "arn:aws:lambda:region:account-id:function:EnableIAMAuthFunction"
+      AwsAccountId: !Ref "AWS::AccountId"
+      Namespace: "default"
+
+  # QuickSight Reader User
+  QuickSightReaderUser:
+    Type: "AWS::QuickSight::User"
+    Properties:
+      AwsAccountId: !Ref "AWS::AccountId"
+      Namespace: "default"
+      IdentityType: "IAM"
+      UserRole: "READER"
+      IamArn: !GetAtt QuickSightIAMRole.Arn
+      Email: "external.reader@example.com"
+      UserName: "ExternalQuickSightReader"
+
+  # QuickSight IAM Admin User
+  QuickSightAdminUser:
+    Type: "AWS::QuickSight::User"
+    Properties:
+      AwsAccountId: !Ref "AWS::AccountId"
+      Namespace: "default"
+      IdentityType: "IAM"
+      UserRole: "ADMIN"
+      IamArn: !GetAtt QuickSightIAMRole.Arn
+      Email: "admin@example.com"
+      UserName: "QuickSightAdmin"
+
+  # QuickSight Native Admin User
+  QuickSightNativeAdminUser:
+    Type: "AWS::QuickSight::User"
+    Properties:
+      AwsAccountId: !Ref "AWS::AccountId"
+      Namespace: "default"
+      IdentityType: "QUICKSIGHT"
+      UserRole: "ADMIN"
+      Email: "native.admin@example.com"
+      UserName: "QuickSightNativeAdmin"
+
+Outputs:
+  QuickSightIAMRoleArn:
+    Description: "The ARN of the IAM role for QuickSight."
+    Value: !GetAtt QuickSightIAMRole.Arn
+
+  QuickSightReaderUserDetails:
+    Description: "Details of the external READER user created for QuickSight."
+    Value: !Ref QuickSightReaderUser
+
+  QuickSightAdminUserDetails:
+    Description: "Details of the IAM ADMIN user created for QuickSight."
+    Value: !Ref QuickSightAdminUser
+
+  QuickSightNativeAdminUserDetails:
+    Description: "Details of the QUICKSIGHT ADMIN user created for QuickSight."
+    Value: !Ref QuickSightNativeAdminUser
