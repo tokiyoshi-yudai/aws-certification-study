@@ -1,0 +1,144 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS ElastiCache Cluster with Redis and Memcached, considering high availability and redundancy.
+
+Resources:
+  # Redis (Single Node with Replica)
+  RedisReplicationGroup:
+    Type: "AWS::ElastiCache::ReplicationGroup"
+    Properties:
+      ReplicationGroupDescription: "High availability Redis with replica."
+      Engine: "redis"
+      CacheNodeType: "cache.t3.medium"
+      ReplicasPerNodeGroup: 1       # Number of replica nodes
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true          # Enable high availability
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds:
+        - !Ref CacheSecurityGroup
+      SnapshotRetentionLimit: 7     # Snapshot retention period
+      SnapshotWindow: "03:00-04:00"
+
+  # Redis Cluster (Multi-Shard)
+  RedisClusterReplicationGroup:
+    Type: "AWS::ElastiCache::ReplicationGroup"
+    Properties:
+      ReplicationGroupDescription: "Redis cluster with multi-shard configuration."
+      Engine: "redis"
+      CacheNodeType: "cache.r5.large"
+      NumNodeGroups: 3              # Number of shards
+      ReplicasPerNodeGroup: 1       # Number of replicas per shard
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds:
+        - !Ref CacheSecurityGroup
+      SnapshotRetentionLimit: 7
+      SnapshotWindow: "02:00-03:00"
+
+  # Memcached Cluster
+  MemcachedCluster:
+    Type: "AWS::ElastiCache::Cluster"
+    Properties:
+      Engine: "memcached"
+      CacheNodeType: "cache.t3.medium"
+      NumCacheNodes: 3
+      PreferredAvailabilityZones:
+        - "us-east-1a"
+        - "us-east-1b"
+        - "us-east-1c"
+      CacheSubnetGroupName: !Ref MemcachedSubnetGroup
+      SecurityGroupIds:
+        - !Ref CacheSecurityGroup
+
+  # Security Group for ElastiCache
+  CacheSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow access to ElastiCache nodes"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 6379
+          ToPort: 6379
+          CidrIp: "10.0.0.0/16"  # Restrict to VPC
+        - IpProtocol: "tcp"
+          FromPort: 11211
+          ToPort: 11211
+          CidrIp: "10.0.0.0/16"  # Restrict to VPC
+
+  # Subnet Group for Redis
+  RedisSubnetGroup:
+    Type: "AWS::ElastiCache::SubnetGroup"
+    Properties:
+      Description: "Subnet group for Redis"
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+
+  # Subnet Group for Memcached
+  MemcachedSubnetGroup:
+    Type: "AWS::ElastiCache::SubnetGroup"
+    Properties:
+      Description: "Subnet group for Memcached"
+      SubnetIds:
+        - !Ref SubnetA
+        - !Ref SubnetB
+        - !Ref SubnetC
+
+  # Example VPC Subnets with Security
+  SubnetA:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: "us-east-1a"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "SubnetA"
+
+  SubnetB:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: "us-east-1b"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "SubnetB"
+
+  SubnetC:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.3.0/24"
+      AvailabilityZone: "us-east-1c"
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: "Name"
+          Value: "SubnetC"
+
+  # Example VPC
+  VPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "ElastiCache-VPC"
+
+Outputs:
+  RedisReplicationGroupEndpoint:
+    Description: "Redis replication group primary endpoint."
+    Value: !GetAtt RedisReplicationGroup.PrimaryEndPoint.Address
+
+  RedisClusterReplicationGroupEndpoint:
+    Description: "Redis cluster primary endpoint."
+    Value: !GetAtt RedisClusterReplicationGroup.PrimaryEndPoint.Address
+
+  MemcachedClusterEndpoint:
+    Description: "Memcached cluster configuration endpoint."
+    Value: !GetAtt MemcachedCluster.ConfigurationEndpoint.Address
