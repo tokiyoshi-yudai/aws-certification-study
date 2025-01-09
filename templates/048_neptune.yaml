@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  NeptuneClusterParameterGroup:
+    Type: "AWS::Neptune::DBClusterParameterGroup"
+    Properties:
+      Description: "Parameter group for Neptune cluster"
+      Family: "neptune1"
+      Parameters:
+        neptune_enable_audit_log: "1"
+
+  NeptuneCluster:
+    Type: "AWS::Neptune::DBCluster"
+    Properties:
+      DBClusterParameterGroupName: !Ref NeptuneClusterParameterGroup
+      EngineVersion: "1.0.5.1"
+      StorageEncrypted: true
+
+  NeptuneInstance:
+    Type: "AWS::Neptune::DBInstance"
+    Properties:
+      DBInstanceClass: "db.r5.large"
+      DBClusterIdentifier: !Ref NeptuneCluster
+
+  NeptuneSubnetGroup:
+    Type: "AWS::Neptune::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for Neptune"
+      SubnetIds:
+        - "subnet-xxxxxx"
+        - "subnet-yyyyyy"
+
+  SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Security Group for Neptune"
+      VpcId: "vpc-zzzzzz"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8182
+          ToPort: 8182
+          CidrIp: "0.0.0.0/0"
