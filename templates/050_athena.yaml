@@ -1,0 +1,74 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation Template for Amazon Athena"
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "athena-demo-bucket-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: athena_demo_database
+        Description: "Glue database for Athena demo"
+
+  GlueTable:
+    Type: AWS::Glue::Table
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseName: !Ref GlueDatabase
+      TableInput:
+        Name: athena_demo_table
+        Description: "Glue table for Athena demo"
+        TableType: EXTERNAL_TABLE
+        Parameters:
+          classification: csv
+          "skip.header.line.count": "1"
+        StorageDescriptor:
+          Columns:
+            - Name: id
+              Type: string
+            - Name: name
+              Type: string
+            - Name: age
+              Type: int
+          Location: !Sub "s3://${S3Bucket}/data/"
+          InputFormat: "org.apache.hadoop.mapred.TextInputFormat"
+          OutputFormat: "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat"
+          SerdeInfo:
+            SerializationLibrary: "org.apache.hadoop.hive.serde2.OpenCSVSerde"
+
+  AthenaWorkGroup:
+    Type: AWS::Athena::WorkGroup
+    Properties:
+      Name: AthenaDemoWorkGroup
+      Description: "WorkGroup for Athena Demo"
+      State: ENABLED
+      WorkGroupConfiguration:
+        ResultConfiguration:
+          OutputLocation: !Sub "s3://${S3Bucket}/results/"
+
+Outputs:
+  S3BucketName:
+    Description: "Name of the S3 bucket created for Athena demo."
+    Value: !Ref S3Bucket
+
+  GlueDatabaseName:
+    Description: "Name of the Glue database for Athena demo."
+    Value: !Ref GlueDatabase
+
+  GlueTableName:
+    Description: "Name of the Glue table for Athena demo."
+    Value: !GetAtt GlueTable.TableInput.Name
+
+  AthenaWorkGroupName:
+    Description: "Name of the Athena WorkGroup."
+    Value: !Ref AthenaWorkGroup
