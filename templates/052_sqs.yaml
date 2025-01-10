@@ -1,0 +1,43 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  SQSDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: MyDeadLetterQueue
+
+  SQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: MyQueue
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SQSDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: SQSAlertsTopic
+
+  CloudWatchAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: SQSQueueVisibleMessagesAlarm
+      MetricName: ApproximateNumberOfMessagesVisible
+      Namespace: AWS/SQS
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref SNSTopic
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SQSQueue.QueueName
+
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: email
+      Endpoint: your-email@example.com
+      TopicArn: !Ref SNSTopic
