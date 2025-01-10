@@ -1,0 +1,284 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template to implement CloudWatch best practices, monitoring, and logging solutions.
+
+Resources:
+
+  # 1. ServiceLens with X-Ray
+  ServiceLensGroup:
+    Type: AWS::XRay::Group
+    Properties:
+      GroupName: ServiceLensGroup
+      InsightsEnabled: true
+      FilterExpression: "service(\"my-service\")"
+
+  # 2. Logs Insights Query
+  LogsInsightsQuery:
+    Type: AWS::Logs::QueryDefinition
+    Properties:
+      Name: HighErrorRateQuery
+      QueryString: |
+        fields @timestamp, @message
+        | filter @message like /ERROR/
+        | sort @timestamp desc
+        | limit 20
+      LogGroupNames:
+        - !Ref MyLogGroup
+
+  # 3. Log Group for /my/log/group
+  MyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /my/log/group
+      RetentionInDays: 14
+
+  # 4. High-Frequency Alarm
+  HighFrequencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: HighFrequencyAlarm
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref MonitoredInstance
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+
+  # 6. CloudWatch Synthetics Canary
+  SyntheticCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      Name: MySyntheticCanary
+      Code:
+        Handler: "pageLoadBlueprint.handler"
+        Script: |
+          const synthetics = require('Synthetics');
+          const log = require('SyntheticsLogger');
+          exports.handler = async function () {
+            const response = await synthetics.executeHttpStep('LoadHomePage', { hostname: 'example.com' });
+            log.info('Response:', response);
+          };
+      ExecutionRoleArn: !GetAtt CanaryExecutionRole.Arn
+      RuntimeVersion: syn-nodejs-puppeteer-3.1
+      Schedule:
+        Expression: "rate(5 minutes)"
+
+  # 7. Anomaly Detection
+  AnomalyDetector:
+    Type: AWS::CloudWatch::AnomalyDetector
+    Properties:
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Stat: Average
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref MonitoredInstance
+
+  # 9. Auto Scaling with Alarms
+  ScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50.0
+
+  # 10. VPC Flow Logs
+  VPCFlowLogs:
+    Type: AWS::EC2::FlowLog
+    Properties:
+      ResourceId: !Ref MyVPC
+      ResourceType: VPC
+      TrafficType: ALL
+      LogGroupName: !Sub "/${Environment}/flow/logs"
+      DeliverLogsPermissionArn: !GetAtt FlowLogsRole.Arn
+
+  # 11. CloudTrail Logs
+  CloudTrailLogs:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: MyTrail
+      IsLogging: true
+      S3BucketName: my-cloudtrail-logs
+      CloudWatchLogsLogGroupArn: !Ref CloudTrailLogGroup
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailRole.Arn
+
+  # 12. Root User Alarm
+  RootUserAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: RootUserUsageAlarm
+      MetricName: RootUserUsage
+      Namespace: AWS/CloudTrail
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlarmNotificationTopic
+
+  # 13. EventBridge Rule
+  EventBridgeRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "EC2 Instance State-change Notification"
+      Targets:
+        - Arn: !GetAtt StateChangeLambda.Arn
+          Id: "StateChangeLambda"
+
+  # 15. Contributor Insights Rule
+  ContributorInsightsRule:
+    Type: AWS::Logs::InsightRule
+    Properties:
+      Name: HighTrafficRule
+      LogGroupNames:
+        - !Ref MyLogGroup
+      RuleBody: |
+        fields @timestamp, @message
+        | stats count() by @ip
+      RuleState: ENABLED
+
+  # 16. Metric Export Task
+  MetricExportTask:
+    Type: AWS::CloudWatch::MetricStream
+    Properties:
+      Name: ExportContributorInsights
+      FirehoseArn: !GetAtt FirehoseDeliveryStream.Arn
+      OutputFormat: json
+      IncludeFilters:
+        - Namespace: "AWS/Logs"
+          MetricNames:
+            - "ContributorInsights: RuleName=HighTrafficRule"
+
+  # 17. Scheduled Metric Export Rule
+  ScheduledMetricExportRule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: "rate(1 day)" # 1日ごとに実行
+      Targets:
+        - Arn: !GetAtt MetricExportLambda.Arn
+          Id: "MetricExportLambda"
+
+  # 18. Lambda Function to Handle Metric Export
+  MetricExportLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: MetricExportHandler
+      Handler: index.handler
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          from datetime import datetime, timedelta
+
+          # Initialize AWS clients
+          cloudwatch = boto3.client('cloudwatch')
+          s3 = boto3.client('s3')
+
+          # Environment variables for S3 bucket and metric details
+          S3_BUCKET = os.environ.get('S3_BUCKET', 'your-s3-bucket-name')
+          NAMESPACE = 'AWS/Logs'
+          METRIC_NAME = 'ContributorInsights: RuleName=HighTrafficRule'
+          DIMENSION_NAME = 'RuleName'
+          DIMENSION_VALUE = 'HighTrafficRule'
+
+          def handler(event, context):
+              try:
+                  # Time range for metric data
+                  end_time = datetime.utcnow()
+                  start_time = end_time - timedelta(days=1)  # Export data from the last day
+
+                  # Fetch metric data
+                  response = cloudwatch.get_metric_data(
+                      MetricDataQueries=[
+                          {
+                              'Id': 'highTrafficMetric',
+                              'MetricStat': {
+                                  'Metric': {
+                                      'Namespace': NAMESPACE,
+                                      'MetricName': METRIC_NAME,
+                                      'Dimensions': [
+                                          {'Name': DIMENSION_NAME, 'Value': DIMENSION_VALUE}
+                                      ]
+                                  },
+                                  'Period': 300,  # 5-minute intervals
+                                  'Stat': 'Sum'
+                              },
+                              'ReturnData': True
+                          }
+                      ],
+                      StartTime=start_time,
+                      EndTime=end_time
+                  )
+
+                  # Prepare data for S3
+                  export_data = {
+                      'startTime': start_time.isoformat(),
+                      'endTime': end_time.isoformat(),
+                      'metricName': METRIC_NAME,
+                      'data': response['MetricDataResults']
+                  }
+
+                  # Save to S3
+                  s3_key = f"metric-exports/{METRIC_NAME}-{start_time.strftime('%Y-%m-%d')}.json"
+                  s3.put_object(
+                      Bucket=S3_BUCKET,
+                      Key=s3_key,
+                      Body=json.dumps(export_data),
+                      ContentType='application/json'
+                  )
+
+                  print(f"Successfully exported metric data to S3: {s3_key}")
+
+                  return {
+                      'statusCode': 200,
+                      'body': f"Exported metric data to {s3_key}"
+                  }
+
+              except Exception as e:
+                  print(f"Error exporting metric data: {e}")
+                  return {
+                      'statusCode': 500,
+                      'body': f"Error: {str(e)}"
+                  }
+
+  # 19. IAM Role for Lambda Function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: AllowMetricExport
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+
+Parameters:
+  MonitoredInstance:
+    Type: String
+    Description: InstanceId of the EC2 instance to monitor.
