@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "CloudFormation template with SNS, DLQ, Step Functions, Filter Policy, and HTTPS"
+
+Resources:
+  ### SNS Topic
+  MySNSTopic:
+    Type: "AWS::SNS::Topic"
+    Properties:
+      TopicName: "MyNotificationTopic"
+
+  ### Dead Letter Queue (DLQ)
+  MyDLQ:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: "MyDeadLetterQueue"
+
+  ### Main Queue (SQS)
+  MyMainQueue:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: "MyMainQueue"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MyDLQ.Arn
+        maxReceiveCount: 5
+
+  ### Queue Policy
+  MyQueuePolicy:
+    Type: "AWS::SQS::QueuePolicy"
+    Properties:
+      Queues:
+        - !Ref MyMainQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal: "*"
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt MyMainQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref MySNSTopic
+
+  ### HTTPS Subscription
+  HTTPSSubscription:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      Protocol: "https"
+      Endpoint: "https://your-secure-endpoint.com" # Replace with your HTTPS endpoint
+      TopicArn: !Ref MySNSTopic
+
+  ### Subscription (SQS + Filter Policy)
+  FilteredSQSSubscription:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      Protocol: "sqs"
+      Endpoint: !GetAtt MyMainQueue.Arn
+      TopicArn: !Ref MySNSTopic
+      FilterPolicy:
+        eventType:
+          - "order_created"
+          - "order_updated"
+
+  ### Lambda Function
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: "MySNSLambdaFunction"
+      Handler: "index.handler"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              print("SNS event:", event)
+      Runtime: "python3.9"
+
+  ### Lambda Permission
+  LambdaPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: !Ref MySNSTopic
+
+  ### Subscription (Lambda)
+  LambdaSubscription:
+    Type: "AWS::SNS::Subscription"
+    Properties:
+      Protocol: "lambda"
+      Endpoint: !GetAtt LambdaFunction.Arn
+      TopicArn: !Ref MySNSTopic
+
+  ### Lambda Execution Role
+  LambdaExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "LambdaExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "LambdaExecutionPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "arn:aws:logs:*:*:*"
+              - Effect: "Allow"
+                Action:
+                  - "sns:Publish"
+                Resource: "*"
+
+  ### Step Functions Execution Role
+  StepFunctionsExecutionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: "StepFunctionsExecutionRole"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "states.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "StepFunctionsSNSPublishPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "sns:Publish"
+                Resource: !Ref MySNSTopic
+
+  ### Step Functions State Machine
+  MyStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "A Step Function that publishes to an SNS Topic",
+          "StartAt": "PublishToSNS",
+          "States": {
+            "PublishToSNS": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${MySNSTopic}",
+                "Message": "Step Functions has successfully executed!",
+                "Subject": "Step Functions Notification"
+              },
+              "End": true
+            }
+          }
+        }
+      StateMachineName: "MyStepFunctionsWithSNS"
+
+Outputs:
+  TopicArn:
+    Description: "SNS Topic ARN"
+    Value: !Ref MySNSTopic
+
+  DLQUrl:
+    Description: "The URL of the Dead Letter Queue"
+    Value: !Ref MyDLQ
+
+  StateMachineArn:
+    Description: "The ARN of the Step Function State Machine"
+    Value: !Ref MyStateMachine
