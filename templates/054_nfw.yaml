@@ -1,0 +1,158 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS Network Firewall with Gateway Route Table and Subnet Configuration
+
+Parameters:
+  VPCId:
+    Type: String
+    Description: The ID of the VPC where the Network Firewall will be deployed.
+
+Resources:
+  # Subnet for Firewall
+  FirewallSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: FirewallSubnet
+
+  # Subnet for Web Server
+  WebServerSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      Tags:
+        - Key: Name
+          Value: WebServerSubnet
+
+  # Network Firewall
+  NetworkFirewall:
+    Type: AWS::NetworkFirewall::Firewall
+    Properties:
+      FirewallName: MyNetworkFirewall
+      FirewallPolicyArn: !Ref FirewallPolicy
+      VpcId: !Ref VPCId
+      SubnetMappings:
+        - SubnetId: !Ref FirewallSubnet
+      Tags:
+        - Key: Name
+          Value: MyNetworkFirewall
+
+  # Empty Firewall Policy
+  FirewallPolicy:
+    Type: AWS::NetworkFirewall::FirewallPolicy
+    Properties:
+      FirewallPolicyName: MyFirewallPolicy
+      FirewallPolicy:
+        StatelessRuleGroupReferences: []
+        StatefulRuleGroupReferences: []
+      Tags:
+        - Key: Name
+          Value: MyFirewallPolicy
+
+  # Stateless Rule Group for HTTP Traffic
+  HTTPStatelessRuleGroup:
+    Type: AWS::NetworkFirewall::RuleGroup
+    Properties:
+      Capacity: 100
+      RuleGroupName: HTTPStatelessRules
+      RuleGroup:
+        RuleVariables: {}
+        RulesSource:
+          StatelessRulesAndCustomActions:
+            StatelessRules:
+              - Priority: 1
+                RuleDefinition:
+                  MatchAttributes:
+                    Protocols: [6] # TCP
+                    SourcePorts:
+                      - FromPort: 0
+                        ToPort: 65535
+                    DestinationPorts:
+                      - FromPort: 80
+                        ToPort: 80
+                    AddressDefinition: 0.0.0.0/0
+                  Actions: ["aws:pass"]
+            CustomActions: []
+      Type: STATELESS
+
+  # Gateway Route Table
+  GatewayRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: GatewayRouteTable
+
+  # Gateway Route Table Association
+  GatewayRouteTableAssociation:
+    Type: AWS::EC2::GatewayRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref GatewayRouteTable
+      GatewayId: !Ref InternetGateway
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyInternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPCId
+      InternetGatewayId: !Ref InternetGateway
+
+  # Routes in Gateway Route Table
+  FirewallRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref GatewayRouteTable
+      DestinationCidrBlock: 10.0.0.0/16
+      GatewayId: !GetAtt NetworkFirewall.FirewallEndpoint
+
+  # Subnet Route Table for Firewall Subnet
+  FirewallSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: FirewallSubnetRouteTable
+
+  FirewallSubnetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref FirewallSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Subnet Route Table for Web Server Subnet
+  WebServerSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: WebServerSubnetRouteTable
+
+  WebServerSubnetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref WebServerSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !GetAtt NetworkFirewall.FirewallEndpoint
+
+Outputs:
+  FirewallEndpoint:
+    Description: The endpoint of the Network Firewall.
+    Value: !GetAtt NetworkFirewall.FirewallEndpoint
